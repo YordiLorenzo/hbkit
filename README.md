@@ -1,5 +1,9 @@
 # hbkit
 
+[![PyPI](https://img.shields.io/pypi/v/hbkit)](https://pypi.org/project/hbkit/)
+[![CI](https://github.com/YordiLorenzo/hbkit/actions/workflows/ci.yml/badge.svg)](https://github.com/YordiLorenzo/hbkit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Recover files from **Synology Hyper Backup (`.hbk`)** archives without any Synology software.
 
 Point it at a backup — on a local disk, an external drive, or an S3/R2 bucket mounted with
@@ -7,12 +11,16 @@ rclone — browse it as a tree, and pull out what you want. Works headless on Li
 including Apple Silicon, where Synology's own Hyper Backup Explorer is awkward or unavailable.
 
 ```sh
+brew install lz4          # or: sudo apt install liblz4-1
 pip install hbkit
 
 hbk /Volumes/Backup doctor              # can this archive be recovered?
 hbk-tui /Volumes/Backup                 # browse and select interactively
 hbk /Volumes/Backup get "/Photos/*" ~/restore
 ```
+
+`liblz4` is a runtime requirement — chunks are raw LZ4 blocks. It is present on most
+systems already; set `HBK_LZ4` if yours lives somewhere unusual.
 
 ---
 
@@ -131,8 +139,6 @@ Read this before trusting it with the only copy of anything.
   bytes, which is the one thing a recovery tool must never do.
 - **Whole-file dedup** (`off_virtual_file = -1`, files living in `Pool/file_pool`) is not
   decoded. One file in 501,278 in the reference archive.
-- Requires `liblz4` (`brew install lz4`, or `apt install liblz4-1`). Set `HBK_LZ4` if it
-  is somewhere unusual.
 
 ## The format
 
