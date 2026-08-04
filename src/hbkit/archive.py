@@ -47,7 +47,9 @@ _LZ4_CANDIDATES = [
     "/opt/homebrew/lib/liblz4.dylib",
     "/usr/local/lib/liblz4.dylib",
     "/usr/lib/x86_64-linux-gnu/liblz4.so.1",
-    "liblz4.so.1", "liblz4.dylib",
+    "/usr/lib/aarch64-linux-gnu/liblz4.so.1",
+    "liblz4.so.1", "liblz4.so", "liblz4.dylib",
+    "liblz4.dll", "lz4.dll",                       # Windows (untested)
 ]
 _lz4 = None
 

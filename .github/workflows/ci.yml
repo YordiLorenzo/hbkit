@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,12 @@ jobs:
         # archive-dependent tests skip automatically without HBK_TEST_ARCHIVE
         run: pytest tests -v
       - name: liblz4 is reachable
+        # Windows has no system liblz4; extraction there is unverified, so we only
+        # check that the package imports and the CLI runs.
+        if: runner.os != 'Windows'
         run: python -c "from hbkit.archive import lz4; lz4(); print('liblz4 OK')"
+      - name: CLI runs
+        run: python -m hbkit.cli
 
   build:
     runs-on: ubuntu-latest
