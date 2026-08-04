@@ -245,6 +245,8 @@ class ArchiveScreen(Screen):
             yield Label("Hyper Backup Recovery", id="title")
             yield Label("Point at a .hbk archive, or a drive containing one.", classes="dim")
             yield Input(value=self.initial or "", placeholder="/Volumes/… ", id="path")
+            yield Input(placeholder="password (encrypted archives only)", password=True,
+                        id="passwd", classes="hidden")
             yield Static("", id="probe")
             yield Label("Detected archives", classes="sect")
             yield ListView(id="found")
@@ -278,17 +280,35 @@ class ArchiveScreen(Screen):
     def path_changed(self, ev: Input.Changed):
         self.probe(ev.value)
 
+    @on(Input.Submitted, "#passwd")
+    def passwd_entered(self):
+        self.probe(self.query_one("#path", Input).value)
+
     def probe(self, path: str):
         w = self.query_one("#probe", Static)
+        pw_field = self.query_one("#passwd", Input)
         if not path.strip():
             w.update(Text("enter a path", style="dim"))
             return
+        pw = pw_field.value or None
         try:
-            arc = hbk.Archive(path)
-        except Exception as e:                              # noqa: BLE001
-            w.update(Text(str(e), style="red"))
+            arc = hbk.Archive(path, password=pw)
+        except hbk.NeedPassword:
+            pw_field.remove_class("hidden")
+            w.update(Text("\U0001f512 encrypted archive - enter the password above",
+                          style="yellow"))
             self._arc = None
             return
+        except Exception as e:                              # noqa: BLE001
+            if type(e).__name__ == "WrongPassword":
+                pw_field.remove_class("hidden")
+                w.update(Text("\u2717 wrong password", style="bold red"))
+            else:
+                w.update(Text(str(e), style="red"))
+            self._arc = None
+            return
+        if arc.crypto:
+            pw_field.remove_class("hidden")
         self._arc = arc
         cfg = arc.task_config()
         lines = Text()
@@ -300,8 +320,8 @@ class ArchiveScreen(Screen):
         comp = {"0": "none", "1": "lz4", "2": "lz4-hc", "4": "zlib"}.get(
             cfg.get("data_compress_type", ""), cfg.get("data_compress_type", "?"))
         lines.append(f"  codec   {comp}", style="dim")
-        if arc.is_encrypted():
-            lines.append("\n  ⚠ ENCRYPTED — extraction not supported", style="bold red")
+        if arc.crypto:
+            lines.append("   \U0001f513 encrypted, unlocked\n", style="bold green")
         else:
             lines.append("   unencrypted\n", style="dim")
         indexed = hbk_index.is_current(arc)
@@ -317,9 +337,6 @@ class ArchiveScreen(Screen):
         arc = getattr(self, "_arc", None)
         if arc is None:
             self.notify("no valid archive at that path", severity="error")
-            return
-        if arc.is_encrypted():
-            self.notify("archive is encrypted — cannot extract", severity="error", timeout=8)
             return
         self.app.push_screen(IndexScreen(arc))
 
@@ -576,7 +593,8 @@ class BrowserScreen(Screen):
             self.notify(f"not enough space: need {human(need)}, have {human(free)}",
                         severity="error", timeout=10)
             return
-        self.app.push_screen(ProgressScreen(self.arc.root, files, dest, self.app.n_workers))
+        self.app.push_screen(ProgressScreen(self.arc.root, files, dest, self.app.n_workers,
+                                            getattr(self.arc, '_password', None)))
 
 
 # ------------------------------------------------------------- progress screen
@@ -584,10 +602,10 @@ class BrowserScreen(Screen):
 class ProgressScreen(Screen):
     BINDINGS = [Binding("escape,q", "back", "Back"), Binding("c", "cancel", "Cancel")]
 
-    def __init__(self, root, files, dest, n_workers):
+    def __init__(self, root, files, dest, n_workers, password=None):
         super().__init__()
         self.dest = dest
-        self.runner = hbk_run.Runner(root, dest, files, n_workers)
+        self.runner = hbk_run.Runner(root, dest, files, n_workers, password=password)
         self.t0 = time.time()
         self.hist = [0.0] * 60
         self._last = (self.t0, 0)
@@ -691,6 +709,7 @@ class HBKApp(App):
     #picker { padding: 1 3; height: 1fr; }
     #picker Input { margin: 1 0; }
     #probe { padding: 1 0; min-height: 6; }
+    .hidden { display: none; }
     #found { height: 1fr; border: tall $primary-darken-3; }
     #open { width: 100%; margin-top: 1; }
 

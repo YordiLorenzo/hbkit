@@ -37,7 +37,7 @@ def worker_main(job_path: str) -> int:
         out_w.flush()
 
     try:
-        arc = hbk.Archive(job["root"])
+        arc = hbk.Archive(job["root"], password=os.environ.get("HBK_PASSWORD") or None)
     except Exception as e:                                   # noqa: BLE001
         emit(k="E", p="<archive>", m=f"{type(e).__name__}: {e}")
         return 0   # already reported; reader emits the done event
@@ -74,9 +74,11 @@ def worker_main(job_path: str) -> int:
 class Runner:
     """Fan `items` out over `n_workers` subprocesses; drain progress with poll()."""
 
-    def __init__(self, root, dest, items, n_workers=8, verify=True, check=False, python=None):
+    def __init__(self, root, dest, items, n_workers=8, verify=True, check=False,
+                 python=None, password=None):
         self.root, self.dest, self.items = root, dest, items
         self.check = check
+        self.password = password
         self.n_workers = max(1, min(n_workers, len(items) or 1))
         self.verify = verify
         self.python = python or sys.executable
@@ -110,10 +112,13 @@ class Runner:
             with open(jp, "w") as fh:
                 json.dump({"root": self.root, "dest": self.dest, "verify": self.verify,
                            "check": self.check, "items": slice_}, fh)
+            env = dict(os.environ)
+            if self.password is not None:      # env, not the job file - no secret on disk
+                env["HBK_PASSWORD"] = self.password
             p = subprocess.Popen(
                 [self.python, "-m", "hbkit.runner", "--worker", jp],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, bufsize=1, close_fds=True)
+                text=True, bufsize=1, close_fds=True, env=env)
             self._procs.append(p)
             t = threading.Thread(target=self._reader, args=(p,), daemon=True)
             t.start()

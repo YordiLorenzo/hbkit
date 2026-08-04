@@ -184,3 +184,48 @@ def test_doctor_passes_on_a_real_archive():
     r = doctor.diagnose(ARCHIVE, sample=3)
     assert not r.blockers, r.blockers
     assert r.ok, [c for c in r.checks if not c[1]]
+
+
+# ------------------------------------------------------- encrypted archive tests
+
+ENC = os.environ.get("HBK_TEST_ENC_ARCHIVE", "")
+ENC_PW = os.environ.get("HBK_TEST_ENC_PASSWORD", "")
+needs_enc = pytest.mark.skipif(
+    not (ENC and os.path.exists(ENC) and ENC_PW),
+    reason="set HBK_TEST_ENC_ARCHIVE and HBK_TEST_ENC_PASSWORD")
+
+
+@needs_enc
+def test_encrypted_requires_password():
+    with pytest.raises(hbk.NeedPassword):
+        hbk.Archive(ENC)
+
+
+@needs_enc
+def test_wrong_password_is_rejected_before_reading_data():
+    from hbkit.crypto import WrongPassword
+    with pytest.raises(WrongPassword):
+        hbk.Archive(ENC, password=ENC_PW + "x")
+
+
+@needs_enc
+def test_encrypted_names_and_content():
+    """Names and bytes must both come back right, checked against chunk MD5s."""
+    import sqlite3
+    from hbkit import index as hbk_index
+    arc = hbk.Archive(ENC, password=ENC_PW)
+    assert arc.crypto is not None
+    db = sqlite3.connect(f"file:{hbk_index.open_or_build(arc)}?mode=ro", uri=True)
+    rows = db.execute("""
+        WITH RECURSIVE t(id,path,isdir) AS (
+            SELECT id,'/'||name,isdir FROM node WHERE parent IS NULL
+            UNION ALL SELECT n.id,t.path||'/'||n.name,n.isdir FROM node n JOIN t ON n.parent=t.id)
+        SELECT t.path,n.ovf,n.size FROM t JOIN node n ON n.id=t.id
+        WHERE t.isdir=0 AND n.ovf>=0 AND n.size>0 LIMIT 20""").fetchall()
+    assert rows, "no files in encrypted archive index"
+    # decrypted names must be printable text, not base64 ciphertext
+    assert all("<undecryptable" not in p for p, _, _ in rows)
+    for path, ovf, size in rows[:5]:
+        data = arc.extract(ovf, size, verify=True)   # verify=True checks every chunk MD5
+        assert len(data) == size, path
+    arc.close()

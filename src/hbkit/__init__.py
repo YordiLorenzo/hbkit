@@ -1,7 +1,10 @@
 """hbkit - recover files from Synology Hyper Backup (.hbk) archives without Synology software."""
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
-from .archive import Archive, UnsupportedArchive, find_archive_root, is_archive  # noqa: F401
+from .archive import (Archive, NeedPassword, UnsupportedArchive,  # noqa: F401
+                      find_archive_root, is_archive)
+from .crypto import WrongPassword  # noqa: F401
 
-__all__ = ["Archive", "UnsupportedArchive", "find_archive_root", "is_archive", "__version__"]
+__all__ = ["Archive", "NeedPassword", "UnsupportedArchive", "WrongPassword",
+           "find_archive_root", "is_archive", "__version__"]

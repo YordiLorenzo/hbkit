@@ -30,6 +30,10 @@ import struct
 import zlib
 from collections import OrderedDict
 
+class NeedPassword(Exception):
+    """The archive is encrypted and no password was supplied."""
+
+
 class UnsupportedArchive(Exception):
     """The archive uses a layout this reader does not implement. Never guess - a wrong
     guess here means silently wrong bytes, which is the one outcome a recovery tool
@@ -188,8 +192,9 @@ def find_archive_root(path: str) -> str:
 class Archive:
     """One .hbk archive. Cheap to construct; caches open handles and bucket indexes."""
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, password: str | None = None):
         self.root = find_archive_root(root)
+        self.crypto = None
         c, p = f"{self.root}/Config", f"{self.root}/Pool"
         self.vf = Cat(f"{c}/virtual_file.index")
         self.ci = Cat(f"{p}/chunk_index")
@@ -208,6 +213,12 @@ class Archive:
         self._bidx: OrderedDict[int, bytes] = OrderedDict()
         self._bdat: OrderedDict[int, object] = OrderedDict()
         self._brec: dict[int, int] = {}
+        self._password = None
+        if self.is_encrypted():
+            if password is None:
+                raise NeedPassword(f"{self.root} is encrypted - a password is required")
+            self.crypto = self._open_crypto(password)
+            self._password = password        # kept in memory so workers can be given it
 
         if self.vf.record_size != 56:
             raise UnsupportedArchive(
@@ -231,6 +242,29 @@ class Archive:
                     k, v = line.split("=", 1)
                     out[k.strip()] = v.strip().strip('"')
         return out
+
+    def _open_crypto(self, password: str):
+        """Unwrap the version key using the password. Raises WrongPassword on mismatch."""
+        import sqlite3
+
+        from .crypto import ArchiveCrypto
+
+        cfg = self.task_config()
+        unikey = cfg.get("unikey")
+        if not unikey:
+            raise UnsupportedArchive("encrypted archive has no unikey in _Syno_TaskConfig")
+        with open(resolve(f"{self.root}/Config", "public.pem"), "rb") as fh:
+            pub = fh.read()
+        db = sqlite3.connect(f"file:{resolve(f'{self.root}/Pool', 'vkey.db')}?immutable=1", uri=True)
+        row = db.execute("SELECT rsa_vkey, rsa_vkey_iv FROM vkey ORDER BY version_id").fetchone()
+        db.close()
+        if not row:
+            raise UnsupportedArchive("encrypted archive has no rows in vkey db")
+        return ArchiveCrypto(password, unikey, pub, bytes(row[0]), bytes(row[1]))
+
+    def decrypt_name(self, stored: str) -> str:
+        """Decrypt a stored filename, or return it unchanged for plaintext archives."""
+        return self.crypto.decrypt_name(stored) if self.crypto else stored
 
     def is_encrypted(self) -> bool:
         return self.task_config().get("enable_data_encrypt", "false").lower() == "true"
@@ -314,6 +348,9 @@ class Archive:
             raise ValueError(f"bucket index CRC32 mismatch b{bid}@{boff}")
         fh.seek(off)
         raw = fh.read(clen)
+        if self.crypto is not None:
+            raw = self.crypto.decrypt_chunk(raw)
+            clen = len(raw)
         dst = ctypes.create_string_buffer(ulen)
         n = lz4().LZ4_decompress_safe(raw, dst, clen, ulen)
         data = dst.raw[:n] if n > 0 else b""
@@ -376,14 +413,17 @@ class Archive:
 _cache: dict[str, Archive] = {}
 
 
-def open_archive(root: str | None = None) -> Archive:
+def open_archive(root: str | None = None, password: str | None = None) -> Archive:
     root = root or os.environ.get("HBK_ROOT") or ""
+    if password is None:
+        password = os.environ.get("HBK_PASSWORD") or None
     key = os.path.abspath(os.path.expanduser(root))
     a = _cache.get(key)
     if a is None:
-        a = _cache[key] = Archive(root)
+        a = _cache[key] = Archive(root, password=password)
     return a
 
 
-def extract(ovf: int, size: int, verify: bool = True, out=None, root: str | None = None):
-    return open_archive(root).extract(ovf, size, verify=verify, out=out)
+def extract(ovf: int, size: int, verify: bool = True, out=None,
+            root: str | None = None, password: str | None = None):
+    return open_archive(root, password).extract(ovf, size, verify=verify, out=out)

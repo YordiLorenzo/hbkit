@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hbkit"
-version = "0.1.1"
+version = "0.2.0"
 description = "Recover files from Synology Hyper Backup (.hbk) archives without Synology software"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,7 +24,7 @@ classifiers = [
   "Topic :: System :: Archiving :: Backup",
   "Topic :: System :: Recovery Tools",
 ]
-dependencies = ["textual>=0.80"]
+dependencies = ["textual>=0.80", "pynacl>=1.5", "cryptography>=41"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]

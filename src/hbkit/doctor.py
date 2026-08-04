@@ -49,13 +49,16 @@ def human(n):
     return f"{n:,.1f}T"
 
 
-def diagnose(path: str, sample: int = 10, seed: int = 0) -> Report:
+def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = None) -> Report:
     r = Report()
 
     try:
-        arc = hbk.Archive(path)
+        arc = hbk.Archive(path, password=password)
     except hbk.UnsupportedArchive as e:
         r.blockers.append(f"unsupported layout: {e}")
+        return r
+    except hbk.NeedPassword:
+        r.blockers.append("archive is ENCRYPTED - re-run with --password")
         return r
     except Exception as e:                                   # noqa: BLE001
         r.blockers.append(f"cannot open archive: {type(e).__name__}: {e}")
@@ -70,11 +73,13 @@ def diagnose(path: str, sample: int = 10, seed: int = 0) -> Report:
     r.fact("backed-up paths", cfg.get("backup_folders", "?"))
     codec = CODECS.get(cfg.get("data_compress_type", ""), f"unknown({cfg.get('data_compress_type')})")
     r.fact("chunk codec", codec)
+    r.fact("encrypted", "yes (unlocked)" if arc.crypto else "no")
     r.fact("dedup across files", cfg.get("support_cross_file_dedup", "?"))
 
     # --- blockers -------------------------------------------------------
     if arc.is_encrypted():
-        r.blockers.append("archive is ENCRYPTED - decryption is not implemented")
+        r.check("password unlocks the archive", arc.crypto is not None,
+                "derived public key matches Config/public.pem")
     if codec.startswith("unknown"):
         r.warnings.append(f"unrecognised data_compress_type {cfg.get('data_compress_type')!r}; "
                           "lz4 and zlib are both attempted per chunk, so it may still work")
@@ -196,10 +201,11 @@ def main() -> int:
     import argparse
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("archive")
+    ap.add_argument("-p", "--password", help="for encrypted archives")
     ap.add_argument("-n", "--sample", type=int, default=10,
                     help="files to rebuild per share as proof (default 10)")
     a = ap.parse_args()
-    r = diagnose(a.archive, a.sample)
+    r = diagnose(a.archive, a.sample, password=a.password)
     print(render(r))
     return 0 if r.ok and not r.blockers else 1
 

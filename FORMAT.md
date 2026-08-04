@@ -15,8 +15,9 @@ in file-signature databases, or in DFIR tooling.
 - **[?]** Unknown. Documented so the next person knows where the edges are.
 
 Coverage caveat: this was derived from **one** archive — DSM 7, Hyper Backup 4.1.2-4039,
-unencrypted, LZ4, single version, single pool. Variant handling marked [D] is implemented
-from disassembly but has never met a real archive of that kind.
+unencrypted, LZ4, single version, single pool, plus a second small **encrypted** archive
+from the same DSM version. Variant handling marked [D] is implemented from disassembly but
+has never met a real archive of that kind.
 
 ---
 
@@ -242,12 +243,70 @@ record. **A reader that verifies both cannot silently return wrong data** — th
 is a loud failure. This matters more than throughput in a recovery tool, and it is what
 makes it safe to attempt undecoded variants: a wrong guess fails rather than corrupts.
 
-## 7. Encryption
+## 7. Encryption [V]
 
-`enable_data_encrypt` in `_Syno_TaskConfig` indicates client-side encryption. This
-document covers **unencrypted archives only**. The encrypted variant is not implemented
-here; a 2016 Python 2 script by "mrsandman" and an accompanying synology-forum.de thread
-document the key derivation, and remain the only public reference.
+`enable_data_encrypt=true` in `_Syno_TaskConfig` marks a client-side encrypted archive.
+Verified end to end: names and contents both reproduce byte-exactly.
+
+Extra files in an encrypted archive:
+
+| file | contents |
+|---|---|
+| `Config/public.pem[.n]` | raw 32-byte X25519 **public** key (not PEM despite the name) |
+| `Config/encKeys[.n]` | header only: magic `ekhtar`, u16 version, u8 KeyWrapType |
+| `Pool/vkey.db[.n]` | `vkey(version_id, rsa_vkey, rsa_vkey_iv, checksum, ref_count)` |
+
+Despite the `rsa_` column names, no RSA is used in this version: the blobs are libsodium
+**sealed boxes** (X25519 + XSalsa20-Poly1305). Sizes give it away — 80 = 48 overhead + 32
+byte key, 64 = 48 + 16 byte IV. Older archives used RSA; that path is not covered here.
+
+### 7.1 Key derivation
+
+```
+salt      = MD5(unikey)                                  # unikey from _Syno_TaskConfig
+seed      = argon2i13(password, salt, ops=4, mem=16MiB, outlen=32)
+pub, priv = crypto_box_seed_keypair(seed)
+```
+
+`pub` **must equal** `Config/public.pem`. Because the public key is stored in the archive,
+this is a complete password check that costs one Argon2 hash and reads no backup data — a
+wrong password is detectable immediately and unambiguously. Synology's exported
+`<task>_private.pem` (also 32 raw bytes) is byte-identical to the derived `priv`, which is
+an independent confirmation of the whole derivation.
+
+### 7.2 Chunk payloads
+
+```
+key   = crypto_box_seal_open(vkey.rsa_vkey,    pub, priv)   # 32 bytes
+iv    = crypto_box_seal_open(vkey.rsa_vkey_iv, pub, priv)   # 16 bytes
+plain = LZ4( PKCS7-strip( AES-256-CBC-decrypt(ciphertext, key, iv) ) )
+```
+
+The IV is fixed per backup version, so identical plaintext chunks produce identical
+ciphertext — visible directly in a bucket file, and a useful sanity check when
+implementing. The `uncomp_len` and MD5 in the bucket index still describe the *final*
+decompressed plaintext, so the existing verification works unchanged.
+
+### 7.3 Filenames [V]
+
+Every path component in `version_list.file_name` is encrypted, with a **different key**,
+then base64-encoded with `/` replaced by `_` (illegal in a filename):
+
+```
+fnKey = SHA256(priv || unikey)
+fnIV  = MD5(unikey || "kkE7sRZRvnbVlJFofhD7WCXumXBGyzki")
+name  = PKCS7-strip( AES-256-CBC-decrypt(b64decode(stored.replace('_','/')), fnKey, fnIV) )
+```
+
+That trailing constant is a hardcoded salt in Synology's binary (`secret_saltFnKeyIV`,
+published in the 2016 script as `unikeySalt2`). Note this means **browsing an encrypted
+archive requires the password** — not just extraction — because the directory tree itself
+is ciphertext.
+
+Relevant vendor functions, if you want to check the above against the binary:
+`EncInfo::decryptPrivateKey`, `RestoreKey::init`, `SYNO::Backup::genFileNameKey`
+(`SHA256(b || a)`), `SYNO::Backup::genFileNameKeyIV`, `SYNO::Backup::gen_iv`
+(`MD5(a || salt)`), `SYNO::Backup::Crypt::AES_decrypt`.
 
 ## 8. Not decoded
 
@@ -256,7 +315,6 @@ document the key derivation, and remain the only public reference.
 - The trailing 4 bytes of a v3 chunk_index record.
 - How Synology *chooses* which `file_chunk` shard a file lands in (readers only need to
   read the value, never predict it).
-- Encrypted archives.
 
 ## 9. How this was derived
 

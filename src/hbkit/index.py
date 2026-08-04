@@ -32,7 +32,7 @@ def is_sidecar(name: str) -> bool:
 
 def fingerprint(arc: hbk.Archive) -> str:
     """Changes whenever any share database changes, so a stale index rebuilds itself."""
-    h = hashlib.sha1(f"v{SCHEMA}|{arc.root}".encode())
+    h = hashlib.sha1(f"v{SCHEMA}|{arc.root}|enc={arc.crypto is not None}".encode())
     for share in arc.shares():
         try:
             p = arc.share_db(share)
@@ -102,10 +102,19 @@ def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
 
         idmap: dict[bytes, int] = {}
         meta: dict[int, tuple] = {}
+        # In encrypted archives every path component is ciphertext; decrypt here so the
+        # rest of the tool (tree, search, globs, extraction paths) sees plain names.
+        decrypt = arc.crypto.decrypt_name if arc.crypto else None
         for b, pb, name, size, mode, mt, ovf in raw:
             nid += 1
             idmap[b] = nid
-            meta[nid] = (pb, name.decode("utf-8", "replace"), size or 0,
+            fname = name.decode("utf-8", "replace")
+            if decrypt:
+                try:
+                    fname = decrypt(fname)
+                except Exception:                      # keep the row; flag the name
+                    fname = f"<undecryptable:{fname[:16]}>"
+            meta[nid] = (pb, fname, size or 0,
                          stat.S_ISDIR(mode or 0), mt or 0, ovf)
 
         nid += 1

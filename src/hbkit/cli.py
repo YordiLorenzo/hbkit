@@ -8,6 +8,8 @@
   hbk <archive> verify <glob>      [-j N]            integrity-check, write nothing
   hbk <archive> tui                                  browse in the full-screen UI
 
+Encrypted archives: add -p/--password, or set HBK_PASSWORD, or you'll be prompted.
+
 <archive> is a .hbk directory, or any drive/folder containing one.
 Globs match the full archive path, which starts with the share name.
 Extraction is resumable: correctly-sized files are skipped.
@@ -19,6 +21,7 @@ Extraction is resumable: correctly-sized files are skipped.
 from __future__ import annotations
 
 import fnmatch
+import getpass
 import os
 import shutil
 import sqlite3
@@ -63,23 +66,42 @@ def all_files(db):
     """)
 
 
-def open_index(archive):
-    arc = hbk.Archive(archive)
-    if arc.is_encrypted():
-        sys.exit("archive is encrypted - extraction is not supported")
+def open_archive(archive, password=None):
+    """Open, prompting for a password only if the archive turns out to be encrypted."""
+    try:
+        return hbk.Archive(archive, password=password)
+    except hbk.NeedPassword:
+        pw = password or os.environ.get("HBK_PASSWORD")
+        if not pw:
+            if not sys.stdin.isatty():
+                sys.exit("archive is encrypted - pass --password or set HBK_PASSWORD")
+            pw = getpass.getpass("archive password: ")
+        try:
+            return hbk.Archive(archive, password=pw)
+        except Exception as e:
+            sys.exit(f"{type(e).__name__}: {e}")
+
+
+def arc_password(arc, password):
+    """The password actually used to unlock `arc` (may have come from a prompt)."""
+    return getattr(arc, "_password", None)
+
+
+def open_index(archive, password=None):
+    arc = open_archive(archive, password)
     if not hbk_index.is_current(arc):
         print("indexing archive (first use only)...", file=sys.stderr)
         hbk_index.build(arc, progress=lambda s, d, n: print(f"  {s} [{d}/{n}]", file=sys.stderr))
     return arc, sqlite3.connect(f"file:{hbk_index.cache_path(arc)}?mode=ro", uri=True)
 
 
-def run(arc, sel, dest, jobs, check):
+def run(arc, sel, dest, jobs, check, password=None):
     total = sum(s[2] for s in sel)
     print(f"{len(sel):,} files, {human(total)}, {jobs} workers"
           + (" - verify only, nothing written" if check else f" -> {dest}"))
     if not check:
         os.makedirs(dest, exist_ok=True)
-    r = hbk_run.Runner(arc.root, dest, sel, jobs, verify=True, check=check)
+    r = hbk_run.Runner(arc.root, dest, sel, jobs, verify=True, check=check, password=password)
     tty = sys.stderr.isatty()
     t0 = time.time()
     r.start()
@@ -117,10 +139,16 @@ def run(arc, sel, dest, jobs, check):
 def main() -> int:
     a = sys.argv[1:]
     jobs = 8
+    password = None
     if "-j" in a:
         i = a.index("-j")
         jobs = int(a[i + 1])
         del a[i:i + 2]
+    for flag in ("-p", "--password"):
+        if flag in a:
+            i = a.index(flag)
+            password = a[i + 1]
+            del a[i:i + 2]
     if len(a) < 2:
         print(__doc__)
         return 1
@@ -128,7 +156,7 @@ def main() -> int:
 
     if cmd == "doctor":
         from . import doctor
-        r = doctor.diagnose(archive)
+        r = doctor.diagnose(archive, password=password)
         print(doctor.render(r))
         return 0 if (r.ok and not r.blockers) else 1
 
@@ -138,18 +166,18 @@ def main() -> int:
         return 0
 
     if cmd == "info":
-        arc = hbk.Archive(archive)
+        arc = open_archive(archive, password)
         cfg = arc.task_config()
         print(f"archive   : {arc.root}")
         print(f"task      : {cfg.get('name','?')}   host {cfg.get('host_name','?')}")
         print(f"codec     : {CODECS.get(cfg.get('data_compress_type',''), '?')}")
-        print(f"encrypted : {arc.is_encrypted()}")
+        print(f"encrypted : {'yes (unlocked)' if arc.crypto else arc.is_encrypted()}")
         print(f"sources   : {cfg.get('backup_folders','?')}")
         for s in arc.shares():
             print(f"  share {s}   versions={arc.share_versions(s)}")
         return 0
 
-    arc, db = open_index(archive)
+    arc, db = open_index(archive, password)
 
     if cmd == "list":
         pat = a[2].lower() if len(a) > 2 else ""
@@ -182,7 +210,7 @@ def main() -> int:
             if need > free:
                 print(f"not enough space: need {human(need)}, have {human(free)} free")
                 return 1
-        return run(arc, sel, dest, jobs, cmd == "verify")
+        return run(arc, sel, dest, jobs, cmd == "verify", password=arc_password(arc, password))
 
     print(__doc__)
     return 1
@@ -190,12 +218,22 @@ def main() -> int:
 
 def main_entry() -> int:
     """Console-script entry point; keeps `main()` usable as a plain function."""
+    from .crypto import MissingCryptoDeps, WrongPassword
     try:
         return main()
+    except WrongPassword:
+        print("wrong password for this archive", file=sys.stderr)
+        return 2
+    except MissingCryptoDeps as e:
+        print(f"{e}", file=sys.stderr)
+        return 2
     except KeyboardInterrupt:
         return 130
     except hbk.UnsupportedArchive as e:
         print(f"unsupported archive: {e}", file=sys.stderr)
+        return 2
+    except hbk.NeedPassword as e:
+        print(f"{e}", file=sys.stderr)
         return 2
     except FileNotFoundError as e:
         print(f"{e}", file=sys.stderr)

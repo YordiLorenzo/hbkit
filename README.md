@@ -15,6 +15,7 @@ brew install lz4          # or: sudo apt install liblz4-1
 pip install hbkit
 
 hbk /Volumes/Backup doctor              # can this archive be recovered?
+hbk /Volumes/Backup doctor -p secret    # encrypted? add a password
 hbk-tui /Volumes/Backup                 # browse and select interactively
 hbk /Volumes/Backup get "/Photos/*" ~/restore
 ```
@@ -69,6 +70,9 @@ hbk <archive> get <glob> <dest> [-j N]   # extract, preserving tree and mtimes
 hbk <archive> verify <glob> [-j N]       # integrity-check, write nothing
 hbk <archive> tui                        # same as hbk-tui
 ```
+
+For encrypted archives pass `-p/--password`, set `HBK_PASSWORD`, or let it prompt. The TUI
+shows a password field when it detects encryption.
 
 `<archive>` is a `.hbk` directory, or any drive or folder containing one — it will find it.
 Globs match the full archive path, which begins with the share name.
@@ -128,8 +132,13 @@ roughly equal bytes-delivered.
 
 Read this before trusting it with the only copy of anything.
 
-- **Encrypted archives are not supported.** They are detected and refused, never
-  half-decoded. If `enable_data_encrypt` is set, this tool will not help you.
+- **Encrypted archives are supported** (password only). A wrong password is rejected
+  instantly, before any data is read, by deriving the public key and comparing it to the
+  one stored in the archive. Older RSA-wrapped archives and key-file unlock are *not*
+  implemented — only the X25519/Argon2 scheme.
+- **The index cache stores decrypted filenames.** Browsing an encrypted archive requires
+  the password because the directory tree itself is ciphertext, so `~/.cache/hbkit` will
+  contain plaintext names (not file contents). Delete it if that matters to you.
 - **Proven against a limited set of archives.** The reference archive is DSM 7,
   Hyper Backup 4.1.2, unencrypted, LZ4, single version, single pool. Older record layouts
   (16-byte `chunk_index`, 28-byte bucket records), zlib chunks and multi-version archives
