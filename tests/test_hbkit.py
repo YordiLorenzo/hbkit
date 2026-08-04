@@ -70,13 +70,13 @@ def test_unsupported_archive_is_its_own_exception():
 def test_resolve_prefers_highest_generation(tmp_path):
     for name in ("thing", "thing.1", "thing.5", "thing.2", "._thing.9"):
         (tmp_path / name).write_text("x")
-    assert hbk.resolve(str(tmp_path), "thing").endswith("thing.5")
+    assert os.path.basename(hbk.resolve(str(tmp_path), "thing")) == "thing.5"
 
 
 def test_resolve_ignores_appledouble(tmp_path):
     (tmp_path / "._thing.9").write_text("x")
     (tmp_path / "thing").write_text("x")
-    assert hbk.resolve(str(tmp_path), "thing").endswith("/thing")
+    assert os.path.basename(hbk.resolve(str(tmp_path), "thing")) == "thing"
 
 
 def test_zero_byte_file_extracts_to_nothing():
