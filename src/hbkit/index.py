@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Build the browsable pre-index for a Hyper Backup archive.
+
+Produces a SQLite tree:
+    node(id, parent, name, isdir, size, nfiles, ovf, mtime, share)
+where a directory's `size`/`nfiles` are SUBTREE totals, so a UI can show folder weights
+without walking children. Synology sidecar metadata (@eaDir, @SynoEAStream,
+@SynoResource) is pruned - it is not user data.
+
+Indexes are cached per archive under ~/.cache/hbk-recovery/ and rebuilt automatically
+when the archive's share databases change.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import sqlite3
+import stat
+import sys
+import time
+
+from . import archive as hbk
+
+CACHE = os.path.expanduser(os.environ.get("HBK_CACHE", "~/.cache/hbk-recovery"))
+SCHEMA = 2
+
+
+def is_sidecar(name: str) -> bool:
+    """Synology metadata: thumbnail dirs, xattr and resource-fork streams."""
+    return name == "@eaDir" or name.endswith(("@SynoEAStream", "@SynoResource"))
+
+
+def fingerprint(arc: hbk.Archive) -> str:
+    """Changes whenever any share database changes, so a stale index rebuilds itself."""
+    h = hashlib.sha1(f"v{SCHEMA}|{arc.root}".encode())
+    for share in arc.shares():
+        try:
+            p = arc.share_db(share)
+            st = os.stat(p)
+            h.update(f"|{share}:{st.st_size}:{int(st.st_mtime)}".encode())
+        except FileNotFoundError:
+            h.update(f"|{share}:missing".encode())
+    return h.hexdigest()[:16]
+
+
+def cache_path(arc: hbk.Archive) -> str:
+    safe = os.path.basename(arc.root.rstrip("/")) or "archive"
+    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in safe)
+    return os.path.join(CACHE, f"{safe}-{fingerprint(arc)}.db")
+
+
+def is_current(arc: hbk.Archive) -> bool:
+    p = cache_path(arc)
+    if not os.path.exists(p):
+        return False
+    try:
+        db = sqlite3.connect(p)
+        ok = db.execute("SELECT value FROM meta WHERE key='complete'").fetchone()
+        db.close()
+        return bool(ok and ok[0] == "1")
+    except sqlite3.Error:
+        return False
+
+
+def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
+    """Build (or rebuild) the index. `progress(stage, done, total)` is called as it goes."""
+    out = out or cache_path(arc)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    tmp = out + ".building"
+    for p in (tmp, out):
+        if os.path.exists(p):
+            os.remove(p)
+
+    db = sqlite3.connect(tmp)
+    db.executescript("""
+        PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;
+        CREATE TABLE node(
+            id INTEGER PRIMARY KEY, parent INTEGER, name TEXT, isdir INTEGER,
+            size INTEGER, nfiles INTEGER, ovf INTEGER, mtime INTEGER, share TEXT);
+        CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+    """)
+
+    shares = arc.shares()
+    nid = 0
+    rows: list[tuple] = []
+    for si, share in enumerate(shares):
+        if progress:
+            progress(f"reading {share}", si, len(shares))
+        try:
+            path = arc.share_db(share)
+        except FileNotFoundError:
+            continue
+        s = sqlite3.connect(f"file:{path}?immutable=1", uri=True)
+        s.text_factory = bytes
+        try:
+            raw = s.execute("SELECT name_id_v2,pname_id_v2,file_name,size,mode,mtime_sec,"
+                            "off_virtual_file FROM version_list").fetchall()
+        except sqlite3.Error:
+            s.close()
+            continue
+        s.close()
+
+        idmap: dict[bytes, int] = {}
+        meta: dict[int, tuple] = {}
+        for b, pb, name, size, mode, mt, ovf in raw:
+            nid += 1
+            idmap[b] = nid
+            meta[nid] = (pb, name.decode("utf-8", "replace"), size or 0,
+                         stat.S_ISDIR(mode or 0), mt or 0, ovf)
+
+        nid += 1
+        root_id = nid
+        kids: dict[int, list[int]] = {}
+        for i, (pb, *_rest) in meta.items():
+            par = idmap.get(pb, root_id)
+            if par == i:
+                par = root_id                       # self-parented archive root
+            kids.setdefault(par, []).append(i)
+
+        # walk top-down, pruning sidecar subtrees, then aggregate bottom-up
+        order, stack = [], [root_id]
+        while stack:
+            n = stack.pop()
+            if n != root_id and is_sidecar(meta[n][1]):
+                continue
+            order.append(n)
+            stack.extend(kids.get(n, ()))
+        keep = set(order)
+
+        agg_sz: dict[int, int] = {}
+        agg_nf: dict[int, int] = {}
+        for n in reversed(order):
+            children = [c for c in kids.get(n, ()) if c in keep]
+            if n == root_id or meta[n][3]:
+                agg_sz[n] = sum(agg_sz.get(c, 0) for c in children)
+                agg_nf[n] = sum(agg_nf.get(c, 0) for c in children)
+            else:
+                agg_sz[n], agg_nf[n] = meta[n][2], 1
+
+        rows.append((root_id, None, share, 1, agg_sz[root_id], agg_nf[root_id], None, 0, share))
+        for n in order:
+            if n == root_id:
+                continue
+            pb, name, size, isdir, mt, ovf = meta[n]
+            par = idmap.get(pb, root_id)
+            if par == n or par not in keep:
+                par = root_id
+            rows.append((n, par, name, 1 if isdir else 0,
+                         agg_sz[n], agg_nf[n], ovf, mt, share))
+        if progress:
+            progress(f"indexed {share}", si + 1, len(shares))
+
+    db.executemany("INSERT INTO node VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    if progress:
+        progress("building indexes", len(shares), len(shares))
+    db.executescript("""
+        CREATE INDEX node_parent ON node(parent, isdir DESC, name COLLATE NOCASE);
+        CREATE INDEX node_name   ON node(name COLLATE NOCASE);
+    """)
+    db.executemany("INSERT INTO meta VALUES (?,?)", [
+        ("root", arc.root), ("schema", str(SCHEMA)),
+        ("fingerprint", fingerprint(arc)), ("built", str(int(time.time()))),
+        ("complete", "1"),
+    ])
+    db.commit()
+    db.close()
+    os.replace(tmp, out)
+    return out
+
+
+def open_or_build(arc: hbk.Archive, progress=None) -> str:
+    return cache_path(arc) if is_current(arc) else build(arc, progress=progress)
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("archive", help="path to the .hbk directory (or its parent)")
+    ap.add_argument("-o", "--out", help="output index path")
+    ap.add_argument("-f", "--force", action="store_true", help="rebuild even if current")
+    a = ap.parse_args()
+    arc = hbk.Archive(a.archive)
+    print(f"archive : {arc.root}")
+    print(f"shares  : {', '.join(arc.shares()) or '(none)'}")
+    if arc.is_encrypted():
+        print("WARNING : this archive is ENCRYPTED - extraction is not supported", file=sys.stderr)
+    if not a.force and not a.out and is_current(arc):
+        print(f"index   : {cache_path(arc)} (already current)")
+        return 0
+    t = time.time()
+    p = build(arc, a.out, progress=lambda s, d, n: print(f"  {s} [{d}/{n}]", flush=True))
+    db = sqlite3.connect(p)
+    n, sz = db.execute("SELECT COUNT(*), SUM(CASE WHEN isdir=0 THEN size ELSE 0 END) "
+                       "FROM node").fetchone()
+    db.close()
+    print(f"\nindex   : {p}")
+    print(f"          {n:,} nodes, {(sz or 0)/1e12:.2f} TB, "
+          f"{os.path.getsize(p)/1e6:.0f} MB, {time.time()-t:.1f}s")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
