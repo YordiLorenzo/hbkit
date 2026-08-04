@@ -20,9 +20,13 @@ import hbkit
 from hbkit import archive as hbk
 
 ARCHIVE = os.environ.get("HBK_TEST_ARCHIVE", "")
-needs_archive = pytest.mark.skipif(
-    not (ARCHIVE and os.path.exists(ARCHIVE)),
-    reason="set HBK_TEST_ARCHIVE to a real .hbk archive")
+if not ARCHIVE:
+    _skip = "HBK_TEST_ARCHIVE is not set - point it at a real .hbk archive"
+elif not os.path.exists(ARCHIVE):
+    _skip = f"HBK_TEST_ARCHIVE={ARCHIVE!r} does not exist (drive not mounted?)"
+else:
+    _skip = ""
+needs_archive = pytest.mark.skipif(bool(_skip), reason=_skip or "ok")
 
 
 @pytest.fixture(scope="module")
