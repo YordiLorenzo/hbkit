@@ -229,3 +229,59 @@ def test_encrypted_names_and_content():
         data = arc.extract(ovf, size, verify=True)   # verify=True checks every chunk MD5
         assert len(data) == size, path
     arc.close()
+
+
+# ------------------------------------------------- shard maths (no archive needed)
+
+def _make_shards(tmp_path, sizes, shard_size, monkeypatch):
+    """Write synthetic <N>.idx.2 shards. Shard 0 carries a valid 64-byte header, as real
+    archives do; the header is part of the logical stream so offsets stay comparable."""
+    import struct
+
+    from hbkit import archive as A
+    monkeypatch.setattr(A, "SHARD_SIZE", shard_size)
+    total = sum(sizes)
+    header = struct.pack(">16I", A.MAGIC, 0, 0, 0, 32, total >> 32, total & 0xFFFFFFFF,
+                         *([0] * 9))
+    blob = b""
+    for i, n in enumerate(sizes):
+        if i == 0:
+            part = header + bytes((64 + j) % 251 for j in range(n - 64))
+        else:
+            part = bytes((len(blob) + j) % 251 for j in range(n))
+        (tmp_path / f"{i}.idx.2").write_bytes(part)
+        blob += part
+    return blob
+
+
+def test_cat_computes_offsets_without_stating_every_shard(tmp_path, monkeypatch):
+    """Sizes/offsets must be derived from the fixed shard size + one final stat."""
+    from hbkit import archive as A
+    blob = _make_shards(tmp_path, [128, 128, 10], 128, monkeypatch)
+    c = A.Cat(str(tmp_path))
+    assert len(c.files) == 3
+    assert c.total == len(blob) == 266
+    assert c.starts == [0, 128, 256]
+    assert c.sizes == [128, 128, 10]
+    assert c.record_size == 32          # read from the header, not guessed
+
+
+def test_cat_reads_across_shard_boundaries(tmp_path, monkeypatch):
+    """The multi-shard read path: every offset/length combination must match one blob."""
+    from hbkit import archive as A
+    blob = _make_shards(tmp_path, [128, 128, 10], 128, monkeypatch)
+    c = A.Cat(str(tmp_path))
+    for off in range(0, len(blob), 7):
+        for n in (1, 5, 127, 128, 129, 260):
+            assert c.read(off, n) == blob[off:off + n], f"off={off} n={n}"
+    assert c.read(0, len(blob)) == blob          # whole stream in one read
+    assert c.read(len(blob), 10) == b""          # past the end
+    c.close()
+
+
+def test_cat_single_shard_still_works(tmp_path, monkeypatch):
+    from hbkit import archive as A
+    blob = _make_shards(tmp_path, [100], 128, monkeypatch)
+    c = A.Cat(str(tmp_path))
+    assert c.total == 100 and c.read(70, 20) == blob[70:90]
+    c.close()
