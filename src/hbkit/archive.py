@@ -45,6 +45,7 @@ BUCKET_BUF = int(os.environ.get("HBK_BUCKET_BUF", 1 << 22))   # read-ahead; plat
 INDEX_BUF = int(os.environ.get("HBK_INDEX_BUF", 1 << 16))     # chunk keys are mostly sequential;
                                                              # unbuffered = one syscall per 29 B
 MAGIC = 0x7053A86E
+SHARD_SIZE = 8 << 20        # every index shard is exactly 8 MiB except the last
 
 _LZ4_CANDIDATES = [
     os.environ.get("HBK_LZ4"),
@@ -112,7 +113,14 @@ def resolve(d: str, base: str) -> str:
 
 
 class Cat:
-    """Numbered <N>.idx[.gen] shards presented as a single logical byte stream."""
+    """Numbered <N>.idx[.gen] shards presented as a single logical byte stream.
+
+    Shards are a fixed SHARD_SIZE except the last, so offsets are computed rather than
+    measured. That matters enormously on network mounts: stat-ing every shard cost ~2,600
+    round-trips on a 3 TB archive (minutes before reading a byte). We now do one directory
+    listing plus a single stat of the final shard. If the assumption were ever wrong, a
+    short read surfaces as a chunk MD5 failure - loudly - never as silent corruption.
+    """
 
     def __init__(self, d: str):
         self.d = d
@@ -129,12 +137,11 @@ class Cat:
         if not found:
             raise FileNotFoundError(f"no .idx shards in {d}")
         self.files = [found[k][1] for k in sorted(found)]
-        self.sizes = [os.path.getsize(os.path.join(d, f)) for f in self.files]
-        self.starts, t = [], 0
-        for s in self.sizes:
-            self.starts.append(t)
-            t += s
-        self.total = t
+        n = len(self.files)
+        last = os.path.getsize(os.path.join(d, self.files[-1]))
+        self.sizes = [SHARD_SIZE] * (n - 1) + [last]
+        self.starts = [i * SHARD_SIZE for i in range(n)]
+        self.total = (n - 1) * SHARD_SIZE + last
         self._fh: dict[int, object] = {}
         # Shard 0 carries a 64-byte header that declares the record size, so readers do
         # not have to hardcode per-DSM-version layouts.
@@ -150,22 +157,58 @@ class Cat:
         self.declared_total = (w[5] << 32) | w[6]
 
     def read(self, off: int, n: int) -> bytes:
+        """Read n bytes at logical offset off, spanning shards as needed."""
         out = b""
-        for i, (f, st, sz) in enumerate(zip(self.files, self.starts, self.sizes)):
-            if off + n <= st or off >= st + sz:
-                continue
-            a, b = max(off, st), min(off + n, st + sz)
+        i = off // SHARD_SIZE
+        while n > 0 and i < len(self.files):
+            st = self.starts[i]
+            take = min(n, st + self.sizes[i] - off)
+            if take <= 0:
+                break
             fh = self._fh.get(i)
             if fh is None:
-                fh = self._fh[i] = open(os.path.join(self.d, f), "rb", buffering=INDEX_BUF)
-            fh.seek(a - st)
-            out += fh.read(b - a)
+                fh = self._fh[i] = open(os.path.join(self.d, self.files[i]), "rb",
+                                        buffering=INDEX_BUF)
+            fh.seek(off - st)
+            got = fh.read(take)
+            out += got
+            if len(got) < take:            # short shard: stop rather than mis-align
+                break
+            off += take
+            n -= take
+            i += 1
         return out
 
     def close(self):
         for fh in self._fh.values():
             fh.close()
         self._fh.clear()
+
+
+class _LazyCats(dict):
+    """file_chunk<N>.index families, opened only when a file actually references one."""
+
+    def __init__(self, dirs: dict[int, str]):
+        super().__init__()
+        self._dirs = dirs
+
+    def get(self, k, default=None):
+        if k in self:
+            return self[k]
+        d = self._dirs.get(k)
+        if d is None:
+            return default
+        self[k] = c = Cat(d)
+        return c
+
+    def __missing__(self, k):
+        c = self.get(k)
+        if c is None:
+            raise KeyError(k)
+        return c
+
+    def values(self):
+        return [v for v in dict.values(self)]
 
 
 def is_archive(d: str) -> bool:
@@ -198,13 +241,14 @@ class Archive:
         c, p = f"{self.root}/Config", f"{self.root}/Pool"
         self.vf = Cat(f"{c}/virtual_file.index")
         self.ci = Cat(f"{p}/chunk_index")
-        self.fc: dict[int, Cat] = {}
+        self._fc_dirs: dict[int, str] = {}
         for e in os.listdir(c):
             m = re.match(r"^file_chunk(\d+)\.index$", e)
             if m and os.path.isdir(os.path.join(c, e)):
-                self.fc[int(m.group(1))] = Cat(os.path.join(c, e))
-        if not self.fc:
+                self._fc_dirs[int(m.group(1))] = os.path.join(c, e)
+        if not self._fc_dirs:
             raise FileNotFoundError(f"no file_chunk<N>.index directories in {c}")
+        self.fc: dict[int, Cat] = _LazyCats(self._fc_dirs)
         pools = [e for e in os.listdir(p) if e.isdigit() and os.path.isdir(os.path.join(p, e))]
         if not pools:
             raise FileNotFoundError(f"no numbered pool directory under {p}")

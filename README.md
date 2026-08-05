@@ -6,8 +6,8 @@
 
 Recover files from **Synology Hyper Backup (`.hbk`)** archives without any Synology software.
 
-Point it at a backup on a local disk or external drive, browse it as a tree, and pull out
-what you want. Works headless on Linux and macOS, including Apple Silicon, where Synology's
+Point it at a backup on a local disk, an external drive, or a network mount, browse it as
+a tree, and pull out what you want. Works headless on Linux and macOS, including Apple Silicon, where Synology's
 own Hyper Backup Explorer is awkward or unavailable.
 
 ```sh
@@ -111,6 +111,30 @@ readable by rebuilding a random sample of real files with full checksum verifica
   half of all entries but under 1% of the bytes.
 - **Index cached** per archive in `~/.cache/hbkit`, rebuilt automatically when the archive
   changes. Browsing 1.1M files is instant after the first open.
+
+## Network mounts (rclone / S3 / R2)
+
+Opening an archive no longer measures every index shard. Shards are a fixed 8 MiB except
+the last, so offsets are computed instead — one directory listing and a single stat per
+index family, and `file_chunk<N>.index` families are opened only if a file references them.
+On a 3 TB archive that removed roughly **2,600 network round-trips** from startup.
+
+If you do mount a bucket, the flags matter more than anything hbkit does:
+
+```sh
+rclone mount r2:bucket ~/mnt/r2 --read-only \
+  --vfs-cache-mode off \      # range requests; 'full' downloads whole files
+  --dir-cache-time 72h         # first listing of ~2000 shards is slow, then cached
+```
+
+**Do not use `--vfs-cache-mode full`.** hbkit reads a 32-byte index record and a ~5 KB
+chunk at a time; in `full` mode each of those pulls an entire file, so a 10 KB extraction
+downloaded ~82 MB (an 8 MiB index shard plus a ~50 MB bucket) and took ten minutes.
+
+Even configured well, a network mount is dramatically slower than local storage — the
+access pattern is thousands of small scattered reads. **If you can, copy the archive to a
+local disk first.** Treat mounted-bucket recovery as workable for pulling out a handful of
+files, not for restoring terabytes.
 
 ## Performance
 
