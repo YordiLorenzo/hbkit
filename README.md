@@ -6,9 +6,9 @@
 
 Recover files from **Synology Hyper Backup (`.hbk`)** archives without any Synology software.
 
-Point it at a backup — on a local disk, an external drive, or an S3/R2 bucket mounted with
-rclone — browse it as a tree, and pull out what you want. Works headless on Linux and macOS,
-including Apple Silicon, where Synology's own Hyper Backup Explorer is awkward or unavailable.
+Point it at a backup on a local disk or external drive, browse it as a tree, and pull out
+what you want. Works headless on Linux and macOS, including Apple Silicon, where Synology's
+own Hyper Backup Explorer is awkward or unavailable.
 
 ```sh
 brew install lz4          # or: sudo apt install liblz4-1
