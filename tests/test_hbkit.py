@@ -338,3 +338,66 @@ def test_warm_ignores_a_directory_with_no_archives(tmp_path):
     from hbkit import mount as m
     (tmp_path / "not-an-archive").mkdir()
     assert m.warm(str(tmp_path), quiet=True) == 0
+
+
+def test_rate_never_reports_zero_for_a_live_transfer():
+    """Network transfers are often < 1 MB/s; '0 MB/s' would be a lie."""
+    from hbkit.tui import rate
+    assert rate(167_000) == "167 KB/s"      # the R2 case that exposed this
+    assert rate(900_000).endswith("KB/s")
+    assert rate(1_200_000) == "1.2 MB/s"
+    assert rate(106_000_000) == "106 MB/s"
+    assert rate(0) == "0 B/s"
+    for v in (1, 999, 1_000, 999_999, 1_000_000, 10_000_000):
+        assert "0 MB/s" != rate(v), v
+
+
+# ------------------------------------------------------- restore manifest / resume state
+
+def test_manifest_roundtrip_and_torn_tail(tmp_path):
+    from hbkit import manifest as mf
+    d = str(tmp_path)
+    mf.append(d, "a/b.png", 100, "aa" * 16)
+    mf.append(d, "c.png", 5, "bb" * 16)
+    with open(mf.path_for(d), "a") as fh:      # simulate a run killed mid-write
+        fh.write('{"p": "torn", "s": 1')
+    got = mf.load(d)
+    assert set(got) == {"a/b.png", "c.png"}, "a torn final line must be skipped, not fatal"
+    assert got["a/b.png"]["s"] == 100
+
+
+def test_manifest_detects_right_size_wrong_bytes(tmp_path):
+    """The case plain size comparison cannot see - the reason this file exists."""
+    from hbkit import manifest as mf
+    d = str(tmp_path)
+    good = b"hello world" * 10
+    (tmp_path / "f.bin").write_bytes(good)
+    mf.append(d, "f.bin", len(good), mf.file_md5(str(tmp_path / "f.bin")))
+    known = mf.load(d)
+    assert mf.is_complete(d, "f.bin", len(good), known, verify=True)
+    (tmp_path / "f.bin").write_bytes(b"\xff" * len(good))          # same size, wrong bytes
+    assert mf.is_complete(d, "f.bin", len(good), known, verify=False), "size-only still passes"
+    assert not mf.is_complete(d, "f.bin", len(good), known, verify=True), "strict must catch it"
+
+
+def test_manifest_strict_refuses_files_it_has_no_hash_for(tmp_path):
+    from hbkit import manifest as mf
+    d = str(tmp_path)
+    (tmp_path / "x.bin").write_bytes(b"1234")
+    assert mf.is_complete(d, "x.bin", 4, {}, verify=False)
+    assert not mf.is_complete(d, "x.bin", 4, {}, verify=True), "no recorded hash => not vouched"
+
+
+def test_sweep_parts_removes_only_part_files(tmp_path):
+    from hbkit import manifest as mf
+    (tmp_path / "sub").mkdir()
+    for n in ("a.part", "sub/b.part", "keep.png", "sub/keep2.jpg"):
+        (tmp_path / n).write_bytes(b"x")
+    assert mf.sweep_parts(str(tmp_path)) == 2
+    assert (tmp_path / "keep.png").exists() and (tmp_path / "sub/keep2.jpg").exists()
+    assert not (tmp_path / "a.part").exists()
+
+
+def test_missing_file_is_never_complete(tmp_path):
+    from hbkit import manifest as mf
+    assert not mf.is_complete(str(tmp_path), "nope.bin", 10, {})

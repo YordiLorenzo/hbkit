@@ -62,6 +62,32 @@ def is_current(arc: hbk.Archive) -> bool:
         return False
 
 
+def _stage_local(src: str, cache_dir: str, progress=None, label: str = "") -> tuple[str, bool]:
+    """Copy a share database to local disk before opening it with SQLite.
+
+    SQLite issues thousands of small random page reads. On a network mount (rclone/S3/R2)
+    each one becomes its own range request, which is pathologically slow - far slower than
+    streaming the whole file down once. Measured: ~8.5 MB/s sequential on an R2 mount, so a
+    356 MB share db streams in ~40s, versus many minutes read page-by-page in place.
+    """
+    size = os.path.getsize(src)
+    if size < 32 << 20:                     # small enough that it doesn't matter
+        return src, False
+    os.makedirs(cache_dir, exist_ok=True)
+    dst = os.path.join(cache_dir, f"stage-{os.getpid()}-{os.path.basename(src)}")
+    done = 0
+    with open(src, "rb") as fi, open(dst, "wb") as fo:
+        while True:
+            b = fi.read(8 << 20)
+            if not b:
+                break
+            fo.write(b)
+            done += len(b)
+            if progress:
+                progress(f"{label} {done // (1 << 20)}/{size // (1 << 20)} MB", done, size)
+    return dst, True
+
+
 def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
     """Build (or rebuild) the index. `progress(stage, done, total)` is called as it goes."""
     out = out or cache_path(arc)
@@ -90,15 +116,23 @@ def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
             path = arc.share_db(share)
         except FileNotFoundError:
             continue
-        s = sqlite3.connect(f"file:{path}?immutable=1", uri=True)
+        staged, is_copy = _stage_local(path, os.path.dirname(out), progress,
+                                       f"downloading {share}")
+        s = sqlite3.connect(f"file:{staged}?immutable=1", uri=True)
         s.text_factory = bytes
         try:
+            if progress:
+                progress(f"reading {share}", si, len(shares))
             raw = s.execute("SELECT name_id_v2,pname_id_v2,file_name,size,mode,mtime_sec,"
                             "off_virtual_file FROM version_list").fetchall()
         except sqlite3.Error:
             s.close()
+            if is_copy:
+                os.unlink(staged)
             continue
         s.close()
+        if is_copy:
+            os.unlink(staged)
 
         idmap: dict[bytes, int] = {}
         meta: dict[int, tuple] = {}
@@ -157,7 +191,7 @@ def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
             rows.append((n, par, name, 1 if isdir else 0,
                          agg_sz[n], agg_nf[n], ovf, mt, share))
         if progress:
-            progress(f"indexed {share}", si + 1, len(shares))
+            progress(f"indexed {share} ({len(raw):,} rows)", si + 1, len(shares))
 
     db.executemany("INSERT INTO node VALUES (?,?,?,?,?,?,?,?,?)", rows)
     if progress:

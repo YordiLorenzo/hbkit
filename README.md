@@ -171,7 +171,29 @@ downloads **whole files** while `off` issues **range requests**.
 | Pulling out a few files | `off` | hbkit reads a 32-byte index record and a ~5 KB chunk at a time. In `full` mode each pulls a whole file: a measured 10 KB extraction fetched ~82 MB and took ten minutes. |
 | Bulk restoring a folder | `full` | You touch most of each ~50 MB bucket anyway, so whole-file fetching becomes read-ahead. **Cap it** with `--vfs-cache-max-size`, or it will fill your disk. |
 
-### Expectations
+### Expectations and tuning
+
+Profiled against a 3 TB archive in R2 (150 MB, 18,104 chunks):
+
+| phase | share of wall time |
+|---|---:|
+| reading chunk data | 53% |
+| reading bucket indexes | 20% |
+| chunk_index lookups | 15% |
+| **LZ4 + MD5 + CRC32** | **0.7%** |
+
+Two things follow. **Verification is free over a network** — never turn it off to go faster,
+it buys nothing. And throughput is bound by round-trips, so **concurrency is the only knob
+that matters**: measured 4.0 MB/s at `-j 1`, 8.5 at `-j 8`, 9.5 at `-j 16`, then flat.
+**Use `-j 16` on a network mount**; the default of 8 is tuned for local disks.
+
+Things that were measured and did *not* help, so you needn't try them: enlarging the read
+buffers (latency-bound, no effect), and reading only the 32 bytes needed from a bucket
+index instead of caching the whole 200 KB file (18% *slower* — a file's chunks cluster in
+one bucket, so the whole-index read amortises). Read amplification is 0.82×: compression
+and dedup mean hbkit fetches less than it delivers.
+
+
 
 Even configured well, a mounted bucket is dramatically slower than local storage — the
 access pattern is thousands of small scattered reads, and each one crosses the network.

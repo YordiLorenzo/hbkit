@@ -107,6 +107,8 @@ def mount(remote: str, mountpoint: str, profile: str = "browse",
         print(f"rclone returned success but {mp} is not mounted", file=sys.stderr)
         return 1
     print(f"mounted {remote} at {mp}")
+    print("  tip: over a network mount use more workers than the local default "
+          "(-j 16); throughput is latency-bound, not CPU-bound")
     for e in sorted(os.listdir(mp))[:10]:
         print(f"    {e}")
     return 0

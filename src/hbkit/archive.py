@@ -407,8 +407,12 @@ class Archive:
             raise ValueError(f"MD5 mismatch b{bid}@{boff}")
         return data
 
-    def extract(self, ovf: int, size: int, verify: bool = True, out=None):
-        """Rebuild one file. Writes to `out` if given (returns byte count), else returns bytes."""
+    def extract(self, ovf: int, size: int, verify: bool = True, out=None, on_bytes=None):
+        """Rebuild one file. Writes to `out` if given (returns byte count), else returns bytes.
+
+        `on_bytes(n)` is called periodically with bytes produced since the last call, so a
+        caller can report progress *within* a large file rather than only when it finishes.
+        """
         if not size:
             return 0 if out is not None else b""
         if ovf is None or ovf < 0:
@@ -421,6 +425,7 @@ class Archive:
             raise ValueError(f"no file_chunk{v >> 48}.index in archive")
         off = v & 0xFFFFFFFFFFFF
         parts, got, i, BATCH = [], 0, 0, 4096
+        pending = 0
         while got < size:
             blob = fc.read(off + i * 8, 8 * BATCH)
             if not blob:
@@ -436,6 +441,13 @@ class Archive:
                 else:
                     parts.append(d)
                 i += 1
+                if on_bytes is not None:
+                    pending += len(d)
+                    if pending >= 1 << 22:          # report about every 4 MB
+                        on_bytes(pending)
+                        pending = 0
+        if on_bytes is not None and pending:
+            on_bytes(pending)
         if got != size:
             raise ValueError(f"size mismatch: rebuilt {got}, expected {size}")
         return got if out is not None else b"".join(parts)

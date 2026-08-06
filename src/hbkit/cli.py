@@ -4,7 +4,7 @@
   hbk <archive> doctor                               check whether it can be recovered
   hbk <archive> info                                 show task, shares, codec
   hbk <archive> list  [pattern]                      search the file index
-  hbk <archive> get   <glob> <dest> [-j N]           extract (keeps tree + mtimes)
+  hbk <archive> get   <glob> <dest> [-j N] [--strict]  extract (keeps tree + mtimes)
   hbk <archive> verify <glob>      [-j N]            integrity-check, write nothing
   hbk <archive> tui                                  browse in the full-screen UI
 
@@ -17,7 +17,9 @@ Encrypted archives: add -p/--password, or set HBK_PASSWORD, or you'll be prompte
 
 <archive> is a .hbk directory, or any drive/folder containing one.
 Globs match the full archive path, which starts with the share name.
-Extraction is resumable: correctly-sized files are skipped.
+Extraction is resumable: correctly-sized files are skipped. Each restored file's MD5 is
+recorded in <dest>/.hbkit-restore.jsonl; --strict re-checks those hashes when resuming,
+catching a file that is the right size but the wrong content (costs a local re-read).
 
   hbk mount r2:mybucket ~/mnt/backup --for browse
   hbk ~/mnt/backup/target.hbk doctor
@@ -50,6 +52,17 @@ def human(n) -> str:
             return f"{n:.0f}B" if u == "B" else f"{n:,.1f}{u}"
         n /= 1024
     return f"{n:,.1f}T"
+
+
+def rate(bps) -> str:
+    """Bytes/sec as a human string. Network transfers are often < 1 MB/s, where a
+    plain '{:.0f} MB/s' renders as a misleading '0 MB/s'."""
+    bps = float(bps or 0)
+    if bps >= 1e6:
+        return f"{bps/1e6:,.0f} MB/s" if bps >= 1e7 else f"{bps/1e6:,.1f} MB/s"
+    if bps >= 1e3:
+        return f"{bps/1e3:,.0f} KB/s"
+    return f"{bps:,.0f} B/s"
 
 
 def hms(s) -> str:
@@ -102,13 +115,15 @@ def open_index(archive, password=None):
     return arc, sqlite3.connect(f"file:{hbk_index.cache_path(arc)}?mode=ro", uri=True)
 
 
-def run(arc, sel, dest, jobs, check, password=None):
+def run(arc, sel, dest, jobs, check, password=None, strict=False):
     total = sum(s[2] for s in sel)
     print(f"{len(sel):,} files, {human(total)}, {jobs} workers"
-          + (" - verify only, nothing written" if check else f" -> {dest}"))
+          + (" - verify only, nothing written" if check else f" -> {dest}")
+          + (" [strict resume]" if strict and not check else ""))
     if not check:
         os.makedirs(dest, exist_ok=True)
-    r = hbk_run.Runner(arc.root, dest, sel, jobs, verify=True, check=check, password=password)
+    r = hbk_run.Runner(arc.root, dest, sel, jobs, verify=True, check=check,
+                       password=password, strict=strict)
     tty = sys.stderr.isatty()
     t0 = time.time()
     r.start()
@@ -117,11 +132,11 @@ def run(arc, sel, dest, jobs, check, password=None):
             r.poll()
             el = max(time.time() - t0, 1e-6)
             pct = 100 * r.bytes_done / total if total else 100
-            rate = r.bytes_done / el
-            eta = (total - r.bytes_done) / rate if rate > 0 else 0
+            rt = r.bytes_done / el
+            eta = (total - r.bytes_done) / rt if rt > 0 else 0
             if tty:      # only paint a live line on a terminal; piped output stays clean
                 sys.stderr.write(f"\r  {pct:5.1f}%  {r.done_files:,}/{r.total_files:,}  "
-                                 f"{human(r.bytes_done)}  {rate/1e6:,.0f} MB/s  eta {hms(eta)}   ")
+                                 f"{human(r.bytes_done)}  {rate(rt)}  eta {hms(eta)}   ")
                 sys.stderr.flush()
             time.sleep(0.25)
         r.poll()
@@ -133,9 +148,11 @@ def run(arc, sel, dest, jobs, check, password=None):
     el = max(time.time() - t0, 1e-6)
     if tty:
         sys.stderr.write("\r" + " " * 78 + "\r")
+    if r.swept:
+        print(f"cleaned up {r.swept} leftover .part file(s) from an interrupted run")
     verb = "verified" if check else "extracted"
     print(f"{r.ok:,} {verb}, {r.skipped:,} already present, {r.failed:,} failed "
-          f"in {hms(el)} ({r.bytes_done/el/1e6:,.0f} MB/s)")
+          f"in {hms(el)} ({rate(r.bytes_done/el)})")
     for p, m in r.errors[:20]:
         print(f"  FAIL {p}: {m}")
     if len(r.errors) > 20:
@@ -151,6 +168,9 @@ def main() -> int:
         i = a.index("-j")
         jobs = int(a[i + 1])
         del a[i:i + 2]
+    strict = "--strict" in a
+    if strict:
+        a.remove("--strict")
     for flag in ("-p", "--password"):
         if flag in a:
             i = a.index(flag)
@@ -255,7 +275,8 @@ def main() -> int:
             if need > free:
                 print(f"not enough space: need {human(need)}, have {human(free)} free")
                 return 1
-        return run(arc, sel, dest, jobs, cmd == "verify", password=arc_password(arc, password))
+        return run(arc, sel, dest, jobs, cmd == "verify",
+                   password=arc_password(arc, password), strict=strict)
 
     print(__doc__)
     return 1

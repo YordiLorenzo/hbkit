@@ -58,6 +58,17 @@ def human(n) -> str:
     return f"{n:,.1f}T"
 
 
+def rate(bps) -> str:
+    """Bytes/sec as a human string. Network transfers are often < 1 MB/s, where a
+    plain '{:.0f} MB/s' renders as a misleading '0 MB/s'."""
+    bps = float(bps or 0)
+    if bps >= 1e6:
+        return f"{bps/1e6:,.0f} MB/s" if bps >= 1e7 else f"{bps/1e6:,.1f} MB/s"
+    if bps >= 1e3:
+        return f"{bps/1e3:,.0f} KB/s"
+    return f"{bps:,.0f} B/s"
+
+
 def hms(sec) -> str:
     if sec is None or sec != sec or sec in (float("inf"),):
         return "--:--"
@@ -233,7 +244,7 @@ def scan_for_archives(roots=None) -> list[str]:
 
 
 class ArchiveScreen(Screen):
-    BINDINGS = [Binding("enter", "open", "Open"), Binding("q", "quit", "Quit")]
+    BINDINGS = [Binding("enter", "open", "Open")]   # ctrl+q quits; plain q must stay typable
 
     def __init__(self, initial: str | None = None):
         super().__init__()
@@ -344,6 +355,8 @@ class ArchiveScreen(Screen):
 class IndexScreen(Screen):
     """Builds the browse index if it is missing or stale, then opens the browser."""
 
+    BINDINGS = [Binding("escape", "app.pop_screen", "Cancel")]
+
     def __init__(self, arc: hbk.Archive):
         super().__init__()
         self.arc = arc
@@ -354,27 +367,32 @@ class IndexScreen(Screen):
             yield Label("Indexing archive", id="title")
             yield Label(self.arc.root, classes="dim")
             yield LoadingIndicator()
-            yield Static("starting…", id="stage")
+            yield Static("starting\u2026", id="stage")
+            yield ProgressBar(total=100, id="ixbar", show_eta=True)
             yield Static("", id="hint")
         yield Footer()
 
     def on_mount(self):
-        self.query_one("#hint", Static).update(
-            Text("first open only — the index is cached and reused", style="dim"))
         self.build()
 
     @work(thread=True, exclusive=True)
     def build(self):
         def prog(stage, done, total):
-            self.app.call_from_thread(
-                self.query_one("#stage", Static).update,
-                Text.assemble((stage, "bold"), (f"   [{done}/{total}]", "dim")))
+            self.app.call_from_thread(self._progress, stage, done, total)
         try:
             path = hbk_index.open_or_build(self.arc, progress=prog)
         except Exception as e:                              # noqa: BLE001
             self.app.call_from_thread(self.failed, f"{type(e).__name__}: {e}")
             return
         self.app.call_from_thread(self.done, path)
+
+    def _progress(self, stage, done, total):
+        self.query_one("#stage", Static).update(Text(stage, style="bold"))
+        bar = self.query_one("#ixbar", ProgressBar)
+        if total and total > 0:
+            bar.update(total=total, progress=done)
+        self.query_one("#hint", Static).update(
+            Text("first open only \u2014 the index is cached and reused", style="dim"))
 
     def failed(self, msg):
         self.query_one("#stage", Static).update(Text(msg, style="bold red"))
@@ -623,6 +641,8 @@ class ProgressScreen(Screen):
                 yield Static(id="s-speed")
                 yield Static(id="s-eta")
             yield Sparkline(self.hist, id="spark")
+            yield Label("Recent files", classes="sect")
+            yield Static("", id="recent")
             yield Label("Activity", classes="sect")
             yield RichLog(id="log", highlight=False, markup=True, max_lines=500)
         yield Footer()
@@ -646,9 +666,23 @@ class ProgressScreen(Screen):
             path, msg = r.errors[self._logged_errors]
             self._logged_errors += 1
             log.write(f"[red]FAIL[/red] {path}  [dim]{msg}[/dim]")
+        self.refresh_recent()
         self.refresh_stats()
         if r.finished:
             self.finish()
+
+    def refresh_recent(self, n: int = 8):
+        rows = list(self.runner.recent)[-n:]
+        if not rows:
+            self.query_one("#recent", Static).update(Text("waiting\u2026", style="dim"))
+            return
+        t = Text()
+        for i, (path, skipped) in enumerate(reversed(rows)):
+            name = path if len(path) <= 78 else "\u2026" + path[-77:]
+            style = "dim" if skipped else ("bold" if i == 0 else "")
+            t.append("  skip  " if skipped else "  ok    ", style="dim")
+            t.append(name + "\n", style=style)
+        self.query_one("#recent", Static).update(t)
 
     def refresh_stats(self):
         r = self.runner
@@ -668,7 +702,7 @@ class ProgressScreen(Screen):
             Text.assemble(("data  ", "dim"),
                           (f"{human(r.bytes_done)}/{human(r.total_bytes)}", "bold")))
         self.query_one("#s-speed", Static).update(
-            Text.assemble(("speed  ", "dim"), (f"{avg/1e6:,.0f} MB/s", "bold green")))
+            Text.assemble(("speed  ", "dim"), (rate(avg), "bold green")))
         self.query_one("#s-eta", Static).update(
             Text.assemble(("eta  ", "dim"), (hms(left), "bold")))
 
@@ -683,7 +717,7 @@ class ProgressScreen(Screen):
         log.write(f"[b green]{verb}[/b green] in {hms(el)} \u2014 "
                   f"{r.ok:,} extracted, {r.skipped:,} already present, "
                   f"[{'red' if r.failed else 'green'}]{r.failed:,} failed[/]")
-        log.write(f"[dim]average {r.bytes_done/el/1e6:,.0f} MB/s \u00b7 Esc to go back[/dim]")
+        log.write(f"[dim]average {rate(r.bytes_done/el)} \u00b7 Esc to go back[/dim]")
         self.query_one("#dest-line", Label).update(f"{verb} \u2192 {self.dest}")
 
     def action_cancel(self):
@@ -715,6 +749,7 @@ class HBKApp(App):
 
     #indexing { padding: 2 3; height: 1fr; align: center middle; }
     #indexing LoadingIndicator { height: 3; }
+    #ixbar { width: 60%; margin: 1 0; }
 
     #body { height: 1fr; }
     #left  { width: 3fr; border-right: solid $primary-darken-2; }
@@ -729,10 +764,15 @@ class HBKApp(App):
     #stats { height: 3; }
     #stats Static { width: 1fr; content-align: left middle; }
     #spark { height: 4; margin: 1 0; color: $success; }
-    #log { height: 1fr; border: tall $primary-darken-3; padding: 0 1; }
+    #recent { height: 8; padding: 0 1; }
+    #log { height: 1fr; min-height: 5; border: tall $primary-darken-3; padding: 0 1; }
     #dest-line { margin-bottom: 1; text-style: bold; }
     """
     TITLE = "Hyper Backup Recovery"
+    # A focused Input swallows plain letters - you must be able to type "q" into a path
+    # or password - so the always-available quit is ctrl+q, bound at app level with
+    # priority so no screen or widget can eat it.
+    BINDINGS = [Binding("ctrl+q", "quit", "Quit", priority=True, show=True)]
 
     def __init__(self, n_workers: int, initial: str | None = None):
         super().__init__()
