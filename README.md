@@ -122,37 +122,54 @@ archive that removed roughly **2,600 network round-trips** from startup.
 
 ### Setting up the mount
 
+hbkit can drive `rclone` for you. It stores no credentials and talks to no cloud API —
+`rclone config` still owns all of that — it just picks flags that are easy to get wrong.
+
 ```sh
-rclone config          # add an s3 remote; for R2 choose provider "Cloudflare"
-mkdir -p ~/mnt/backup
-rclone mount myremote:mybucket ~/mnt/backup --read-only --dir-cache-time 72h --daemon
+rclone config                                   # add an s3 remote; for R2 pick "Cloudflare"
+hbk remotes                                     # what's configured
+hbk mount r2:mybucket ~/mnt/backup --for browse # mount + pre-warm
 hbk ~/mnt/backup/target.hbk doctor
+hbk unmount ~/mnt/backup
 ```
 
-Always mount `--read-only`. hbkit never writes to an archive, and this makes that
-structural. `--dir-cache-time 72h` matters: the first listing of a ~2,000-shard index
-directory is slow, every one after it is instant.
+`--for browse` (default) uses range requests; `--for restore` uses whole-file fetching as
+read-ahead with the cache capped at 50G (`--cache-size 10G` to change it). `--no-warm`
+skips pre-warming, `--dry-run` just prints the rclone command.
+
+Measured on a 3 TB archive in Cloudflare R2:
+
+| | before tuning | with `hbk mount` |
+|---|---|---|
+| cold mount + directory pre-warm | ~12 min | **16 s** |
+| opening the archive | 9 min 21 s | **1.8 s** |
+| extracting a 10 KB file | 584 s | **11 s** |
+
+Three things get you there, and you can apply them by hand if you'd rather not use
+`hbk mount`:
+
+- **`--no-modtime`** — the big one. Without it rclone issues a HEAD per object just to fill
+  in modification times for a listing: ~0.27 s per entry, so the 2,021-shard `chunk_index`
+  directory took **546.8 s**. With it, **4.07 s** — 134× faster. hbkit never uses the
+  modtimes of an archive's internal files (restored mtimes come from the archive's own
+  metadata), so this costs nothing.
+- **`--dir-cache-time 72h`** — the first listing of a large shard directory is the expensive
+  one; cache it and every later open is instant.
+- **pre-warming** — `hbk mount` walks the index directories once up front, so the wait
+  happens visibly at mount time instead of looking like a hang on your first command. Run
+  it separately with `hbk warm ~/mnt/backup`.
 
 ### Choosing `--vfs-cache-mode` — it depends on what you're doing
 
-This flag matters more than anything hbkit does, and the right answer is not the same for
-every task, because rclone's `full` mode downloads **whole files** while `off` issues
-**range requests**.
+`hbk mount --for` picks this for you, but if you mount by hand: rclone's `full` mode
+downloads **whole files** while `off` issues **range requests**.
 
 | What you're doing | Mode | Why |
 |---|---|---|
-| First index build | `full` | Reads one share database end to end (356 MB on a 1.1M-file archive). Sequential — exactly what whole-file fetching is good at. One time only; cached in `~/.cache/hbkit` afterwards. |
+| First index build | `full` | Reads one share database end to end (356 MB on a 1.1M-file archive). Sequential — what whole-file fetching is good at. One time; cached in `~/.cache/hbkit` after. |
 | Browsing, `list`, the TUI tree | either | Served from the local index, no network at all. |
-| Pulling out a few files | `off` | hbkit reads a 32-byte index record and a ~5 KB chunk at a time. In `full` mode each pulls a whole file: a measured 10 KB extraction fetched ~82 MB (an 8 MiB index shard plus a ~50 MB bucket) and took ten minutes. |
-| Bulk restoring a folder | `full` | You will touch most of each ~50 MB bucket anyway, so whole-file fetching stops being waste and starts being read-ahead. |
-
-**If you use `full`, cap the cache.** Without a limit it will fill your disk — the cache
-holds whole bucket files, and archives run to terabytes:
-
-```sh
-rclone mount myremote:mybucket ~/mnt/backup --read-only \
-  --vfs-cache-mode full --vfs-cache-max-size 50G --dir-cache-time 72h --daemon
-```
+| Pulling out a few files | `off` | hbkit reads a 32-byte index record and a ~5 KB chunk at a time. In `full` mode each pulls a whole file: a measured 10 KB extraction fetched ~82 MB and took ten minutes. |
+| Bulk restoring a folder | `full` | You touch most of each ~50 MB bucket anyway, so whole-file fetching becomes read-ahead. **Cap it** with `--vfs-cache-max-size`, or it will fill your disk. |
 
 ### Expectations
 

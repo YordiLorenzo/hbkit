@@ -285,3 +285,56 @@ def test_cat_single_shard_still_works(tmp_path, monkeypatch):
     c = A.Cat(str(tmp_path))
     assert c.total == 100 and c.read(70, 20) == blob[70:90]
     c.close()
+
+
+# --------------------------------------------------- rclone mount helper (no network)
+
+def test_mount_profiles_pick_the_right_cache_mode(monkeypatch):
+    from hbkit import mount as m
+    monkeypatch.setattr(m, "require_rclone", lambda: "/usr/bin/rclone")
+    browse = m.build_command("r2:b", "/tmp/mp", "browse")
+    restore = m.build_command("r2:b", "/tmp/mp", "restore")
+    assert "off" == browse[browse.index("--vfs-cache-mode") + 1]
+    assert "full" == restore[restore.index("--vfs-cache-mode") + 1]
+    # bulk restores cache whole ~50MB buckets, so the cache MUST be capped
+    assert "--vfs-cache-max-size" in restore
+    assert "--vfs-cache-max-size" not in browse
+
+
+def test_mount_command_is_always_read_only_and_skips_modtimes(monkeypatch):
+    """--no-modtime avoids a HEAD per object: 2021-entry listing 546.8s -> 4.07s."""
+    from hbkit import mount as m
+    monkeypatch.setattr(m, "require_rclone", lambda: "/usr/bin/rclone")
+    for profile in ("browse", "restore"):
+        cmd = m.build_command("r2:b", "/tmp/mp", profile)
+        assert "--read-only" in cmd, profile
+        assert "--no-modtime" in cmd, profile
+        assert "--dir-cache-time" in cmd, profile
+
+
+def test_mount_rejects_unknown_profile(monkeypatch):
+    from hbkit import mount as m
+    monkeypatch.setattr(m, "require_rclone", lambda: "/usr/bin/rclone")
+    with pytest.raises(ValueError):
+        m.build_command("r2:b", "/tmp/mp", "nonsense")
+
+
+def test_mount_cache_size_override(monkeypatch):
+    from hbkit import mount as m
+    monkeypatch.setattr(m, "require_rclone", lambda: "/usr/bin/rclone")
+    cmd = m.build_command("r2:b", "/tmp/mp", "restore", cache_size="10G")
+    assert cmd[cmd.index("--vfs-cache-max-size") + 1] == "10G"
+
+
+def test_missing_rclone_is_a_clear_error(monkeypatch):
+    from hbkit import mount as m
+    monkeypatch.setattr(m.shutil, "which", lambda _: None)
+    with pytest.raises(m.RcloneMissing) as e:
+        m.require_rclone()
+    assert "rclone config" in str(e.value)
+
+
+def test_warm_ignores_a_directory_with_no_archives(tmp_path):
+    from hbkit import mount as m
+    (tmp_path / "not-an-archive").mkdir()
+    assert m.warm(str(tmp_path), quiet=True) == 0

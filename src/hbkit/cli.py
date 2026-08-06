@@ -8,12 +8,19 @@
   hbk <archive> verify <glob>      [-j N]            integrity-check, write nothing
   hbk <archive> tui                                  browse in the full-screen UI
 
+  hbk mount   <remote:bucket> <dir> [--for browse|restore] [--no-warm]
+  hbk warm    <dir>                                  pre-cache dir listings
+  hbk unmount <dir>                                          unmount it
+  hbk remotes                                                list configured rclone remotes
+
 Encrypted archives: add -p/--password, or set HBK_PASSWORD, or you'll be prompted.
 
 <archive> is a .hbk directory, or any drive/folder containing one.
 Globs match the full archive path, which starts with the share name.
 Extraction is resumable: correctly-sized files are skipped.
 
+  hbk mount r2:mybucket ~/mnt/backup --for browse
+  hbk ~/mnt/backup/target.hbk doctor
   hbk /Volumes/Backup doctor
   hbk /Volumes/Backup list holiday
   hbk /Volumes/Backup get "/Photos/2019/*" ~/restore
@@ -149,9 +156,47 @@ def main() -> int:
             i = a.index(flag)
             password = a[i + 1]
             del a[i:i + 2]
-    if len(a) < 2:
+    if len(a) < 2 and (not a or a[0] != "remotes"):
         print(__doc__)
         return 1
+    if a[0] in ("mount", "unmount", "remotes", "warm"):
+        from . import mount as m
+        try:
+            if a[0] == "remotes":
+                rs = m.remotes()
+                print("\n".join(f"  {r}" for r in rs) if rs
+                      else "  no rclone remotes configured - run: rclone config")
+                return 0
+            if a[0] == "warm":
+                if len(a) < 2:
+                    print("usage: hbk warm <dir>")
+                    return 1
+                return m.warm(a[1])
+            if a[0] == "unmount":
+                if len(a) < 2:
+                    print("usage: hbk unmount <dir>")
+                    return 1
+                return m.unmount(a[1])
+            if len(a) < 3:
+                print("usage: hbk mount <remote:bucket> <dir> [--for browse|restore]")
+                return 1
+            prof, rest = "browse", a[3:]
+            if "--for" in rest:
+                i = rest.index("--for")
+                prof = rest[i + 1]
+            cache = None
+            if "--cache-size" in rest:
+                cache = rest[rest.index("--cache-size") + 1]
+            rc = m.mount(a[1], a[2], prof, cache, dry_run="--dry-run" in rest)
+            if rc == 0 and "--dry-run" not in rest and "--no-warm" not in rest:
+                print("\npre-warming directory cache (first open over a network mount "
+                      "is slow; doing it here so later commands are instant)")
+                m.warm(a[2])
+            return rc
+        except (m.RcloneMissing, ValueError) as e:
+            print(f"{e}", file=sys.stderr)
+            return 2
+
     archive, cmd = a[0], a[1]
 
     if cmd == "doctor":
