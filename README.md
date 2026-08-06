@@ -114,27 +114,52 @@ readable by rebuilding a random sample of real files with full checksum verifica
 
 ## Network mounts (rclone / S3 / R2)
 
-Opening an archive no longer measures every index shard. Shards are a fixed 8 MiB except
-the last, so offsets are computed instead — one directory listing and a single stat per
-index family, and `file_chunk<N>.index` families are opened only if a file references them.
-On a 3 TB archive that removed roughly **2,600 network round-trips** from startup.
+You can point hbkit at a bucket mounted with rclone instead of copying the archive down
+first. Opening an archive no longer measures every index shard — shards are a fixed 8 MiB
+except the last, so offsets are computed: one directory listing and a single stat per index
+family, and `file_chunk<N>.index` families open only if a file references them. On a 3 TB
+archive that removed roughly **2,600 network round-trips** from startup.
 
-If you do mount a bucket, the flags matter more than anything hbkit does:
+### Setting up the mount
 
 ```sh
-rclone mount r2:bucket ~/mnt/r2 --read-only \
-  --vfs-cache-mode off \      # range requests; 'full' downloads whole files
-  --dir-cache-time 72h         # first listing of ~2000 shards is slow, then cached
+rclone config          # add an s3 remote; for R2 choose provider "Cloudflare"
+mkdir -p ~/mnt/backup
+rclone mount myremote:mybucket ~/mnt/backup --read-only --dir-cache-time 72h --daemon
+hbk ~/mnt/backup/target.hbk doctor
 ```
 
-**Do not use `--vfs-cache-mode full`.** hbkit reads a 32-byte index record and a ~5 KB
-chunk at a time; in `full` mode each of those pulls an entire file, so a 10 KB extraction
-downloaded ~82 MB (an 8 MiB index shard plus a ~50 MB bucket) and took ten minutes.
+Always mount `--read-only`. hbkit never writes to an archive, and this makes that
+structural. `--dir-cache-time 72h` matters: the first listing of a ~2,000-shard index
+directory is slow, every one after it is instant.
 
-Even configured well, a network mount is dramatically slower than local storage — the
-access pattern is thousands of small scattered reads. **If you can, copy the archive to a
-local disk first.** Treat mounted-bucket recovery as workable for pulling out a handful of
-files, not for restoring terabytes.
+### Choosing `--vfs-cache-mode` — it depends on what you're doing
+
+This flag matters more than anything hbkit does, and the right answer is not the same for
+every task, because rclone's `full` mode downloads **whole files** while `off` issues
+**range requests**.
+
+| What you're doing | Mode | Why |
+|---|---|---|
+| First index build | `full` | Reads one share database end to end (356 MB on a 1.1M-file archive). Sequential — exactly what whole-file fetching is good at. One time only; cached in `~/.cache/hbkit` afterwards. |
+| Browsing, `list`, the TUI tree | either | Served from the local index, no network at all. |
+| Pulling out a few files | `off` | hbkit reads a 32-byte index record and a ~5 KB chunk at a time. In `full` mode each pulls a whole file: a measured 10 KB extraction fetched ~82 MB (an 8 MiB index shard plus a ~50 MB bucket) and took ten minutes. |
+| Bulk restoring a folder | `full` | You will touch most of each ~50 MB bucket anyway, so whole-file fetching stops being waste and starts being read-ahead. |
+
+**If you use `full`, cap the cache.** Without a limit it will fill your disk — the cache
+holds whole bucket files, and archives run to terabytes:
+
+```sh
+rclone mount myremote:mybucket ~/mnt/backup --read-only \
+  --vfs-cache-mode full --vfs-cache-max-size 50G --dir-cache-time 72h --daemon
+```
+
+### Expectations
+
+Even configured well, a mounted bucket is dramatically slower than local storage — the
+access pattern is thousands of small scattered reads, and each one crosses the network.
+**If you can, copy the archive to a local disk first.** Start with one small folder and
+watch the throughput before committing to a large restore.
 
 ## Performance
 
