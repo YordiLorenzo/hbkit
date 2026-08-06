@@ -54,7 +54,11 @@ case is a loud failure naming the file.
  a All  n Clear  d Destination  r Recover  / Search  q Quit       │
 ```
 
-`space` tick · `a` all · `n` clear · `/` search · `d` destination · `r` recover.
+`space` tick · `a` all · `n` clear · `/` search · `d` destination · `r` recover ·
+`ctrl+q` quit (plain `q` types into whichever field has focus, so quit is ctrl+q).
+
+During a restore it shows live throughput, ETA, a rolling list of recently completed files,
+and a log of any failures.
 
 Folders show subtree size and file count. Ticking a folder takes its whole subtree; the
 destination panel warns before you start if the selection will not fit. Recovery shows a
@@ -63,12 +67,18 @@ live progress bar, throughput, ETA and a failure log.
 ## Commands
 
 ```sh
-hbk <archive> doctor                     # probe an unknown archive, prove it's readable
-hbk <archive> info                       # task name, codec, shares, encryption
-hbk <archive> list [pattern]             # search the file index
-hbk <archive> get <glob> <dest> [-j N]   # extract, preserving tree and mtimes
-hbk <archive> verify <glob> [-j N]       # integrity-check, write nothing
-hbk <archive> tui                        # same as hbk-tui
+hbk <archive> doctor                            # probe an archive, prove it's readable
+hbk <archive> info                              # task name, codec, shares, encryption
+hbk <archive> list [pattern]                    # search the file index
+hbk <archive> get <glob> <dest> [-j N]          # extract, preserving tree and mtimes
+hbk <archive> get <glob> <dest> --strict        # ...re-verifying checksums on resume
+hbk <archive> verify <glob> [-j N]              # integrity-check, write nothing
+hbk <archive> tui                               # same as hbk-tui
+
+hbk mount <remote:bucket> <dir> [--for browse|restore]   # mount object storage
+hbk warm <dir>                                  # pre-cache directory listings
+hbk unmount <dir>
+hbk remotes                                     # list configured rclone remotes
 ```
 
 For encrypted archives pass `-p/--password`, set `HBK_PASSWORD`, or let it prompt. The TUI
@@ -109,8 +119,9 @@ readable by rebuilding a random sample of real files with full checksum verifica
 - **Sidecars skipped.** `@eaDir`, `@SynoEAStream` and `@SynoResource` are Synology
   metadata — thumbnails and xattr streams, not your data. In one real archive they were
   half of all entries but under 1% of the bytes.
-- **Index cached** per archive in `~/.cache/hbkit`, rebuilt automatically when the archive
-  changes. Browsing 1.1M files is instant after the first open.
+- **Index cached** per archive in `~/.cache/hbkit` (override with `HBK_CACHE`), rebuilt
+  automatically when the archive changes. Browsing 1.1M files is instant after the first
+  open; building it takes ~10s locally, ~48s over a network mount.
 
 ## Network mounts (rclone / S3 / R2)
 
@@ -227,8 +238,9 @@ Read this before trusting it with the only copy of anything.
 - **The index cache stores decrypted filenames.** Browsing an encrypted archive requires
   the password because the directory tree itself is ciphertext, so `~/.cache/hbkit` will
   contain plaintext names (not file contents). Delete it if that matters to you.
-- **Proven against a limited set of archives.** The reference archive is DSM 7,
-  Hyper Backup 4.1.2, unencrypted, LZ4, single version, single pool. Older record layouts
+- **Proven against a limited set of archives.** A 3 TB DSM 7 / Hyper Backup 4.1.2
+  archive (unencrypted, LZ4, single version, single pool) and a small encrypted one from
+  the same DSM version, both verified byte-exact. Older record layouts
   (16-byte `chunk_index`, 28-byte bucket records), zlib chunks and multi-version archives
   are implemented from disassembly but have not met a real archive of that kind. `doctor`
   exists precisely so you can find out in seconds rather than mid-restore.

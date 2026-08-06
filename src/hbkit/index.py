@@ -7,7 +7,7 @@ where a directory's `size`/`nfiles` are SUBTREE totals, so a UI can show folder 
 without walking children. Synology sidecar metadata (@eaDir, @SynoEAStream,
 @SynoResource) is pruned - it is not user data.
 
-Indexes are cached per archive under ~/.cache/hbk-recovery/ and rebuilt automatically
+Indexes are cached per archive under ~/.cache/hbkit/ and rebuilt automatically
 when the archive's share databases change.
 """
 from __future__ import annotations
@@ -21,7 +21,17 @@ import time
 
 from . import archive as hbk
 
-CACHE = os.path.expanduser(os.environ.get("HBK_CACHE", "~/.cache/hbk-recovery"))
+def _default_cache() -> str:
+    """~/.cache/hbkit, falling back to the pre-0.4.1 name if that is what exists locally
+    so an upgrade does not silently orphan an index someone waited minutes to build."""
+    new = os.path.expanduser("~/.cache/hbkit")
+    old = os.path.expanduser("~/.cache/hbk-recovery")
+    if not os.path.isdir(new) and os.path.isdir(old):
+        return old
+    return new
+
+
+CACHE = os.path.expanduser(os.environ.get("HBK_CACHE", "")) or _default_cache()
 SCHEMA = 2
 
 

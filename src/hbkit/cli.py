@@ -4,14 +4,14 @@
   hbk <archive> doctor                               check whether it can be recovered
   hbk <archive> info                                 show task, shares, codec
   hbk <archive> list  [pattern]                      search the file index
-  hbk <archive> get   <glob> <dest> [-j N] [--strict]  extract (keeps tree + mtimes)
+  hbk <archive> get   <glob> <dest> [-j N] [--strict] extract (keeps tree + mtimes)
   hbk <archive> verify <glob>      [-j N]            integrity-check, write nothing
   hbk <archive> tui                                  browse in the full-screen UI
 
   hbk mount   <remote:bucket> <dir> [--for browse|restore] [--no-warm]
-  hbk warm    <dir>                                  pre-cache dir listings
-  hbk unmount <dir>                                          unmount it
-  hbk remotes                                                list configured rclone remotes
+  hbk warm    <dir>                                  pre-cache directory listings
+  hbk unmount <dir>                                  unmount it
+  hbk remotes                                        list configured rclone remotes
 
 Encrypted archives: add -p/--password, or set HBK_PASSWORD, or you'll be prompted.
 

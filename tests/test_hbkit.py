@@ -401,3 +401,17 @@ def test_sweep_parts_removes_only_part_files(tmp_path):
 def test_missing_file_is_never_complete(tmp_path):
     from hbkit import manifest as mf
     assert not mf.is_complete(str(tmp_path), "nope.bin", 10, {})
+
+
+def test_cache_dir_prefers_new_name_but_honours_the_old_one(tmp_path, monkeypatch):
+    """Renaming the cache must not orphan an index someone waited minutes to build."""
+    from hbkit import index as hbki
+    home = tmp_path
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(os.path, "expanduser",
+                        lambda p: p.replace("~", str(home)) if p.startswith("~") else p)
+    assert hbki._default_cache().endswith("/.cache/hbkit")          # nothing exists yet
+    (home / ".cache" / "hbk-recovery").mkdir(parents=True)
+    assert hbki._default_cache().endswith("/.cache/hbk-recovery")   # legacy honoured
+    (home / ".cache" / "hbkit").mkdir(parents=True)
+    assert hbki._default_cache().endswith("/.cache/hbkit")          # new wins once present
