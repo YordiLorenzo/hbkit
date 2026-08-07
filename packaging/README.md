@@ -8,7 +8,7 @@ the hash, nothing else.
 | ------ | ---------- | -------- |
 | Homebrew | — | [YordiLorenzo/homebrew-tap](https://github.com/YordiLorenzo/homebrew-tap) |
 | AUR | `aur/PKGBUILD`, `aur/.SRCINFO` | `ssh://aur@aur.archlinux.org/hbkit.git` |
-| nixpkgs | `nix/package.nix` | `pkgs/by-name/hb/hbkit/package.nix` |
+| nixpkgs | `nix/package.nix` | `pkgs/by-name/hb/hbkit/package.nix` ([PR #550225](https://github.com/NixOS/nixpkgs/pull/550225)) |
 
 ## A note on liblz4
 
