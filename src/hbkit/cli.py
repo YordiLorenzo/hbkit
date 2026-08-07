@@ -12,6 +12,7 @@
   hbk warm    <dir>                                  pre-cache directory listings
   hbk unmount <dir>                                  unmount it
   hbk remotes                                        list configured rclone remotes
+  hbk --version                                      print the installed version
 
 Encrypted archives: add -p/--password, or set HBK_PASSWORD, or you'll be prompted.
 
@@ -162,6 +163,10 @@ def run(arc, sel, dest, jobs, check, password=None, strict=False):
 
 def main() -> int:
     a = sys.argv[1:]
+    if a and a[0] in ("--version", "-V"):
+        from . import __version__
+        print(f"hbkit {__version__}")
+        return 0
     jobs = 8
     password = None
     if "-j" in a:

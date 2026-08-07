@@ -1,0 +1,33 @@
+# Maintainer: YordiLorenzo <yordilorenzo@gmail.com>
+pkgname=hbkit
+pkgver=0.4.2
+pkgrel=1
+pkgdesc="Recover files from Synology Hyper Backup (.hbk) archives without Synology software"
+arch=('any')
+url="https://github.com/YordiLorenzo/hbkit"
+license=('MIT')
+depends=('python' 'python-textual' 'python-pynacl' 'python-cryptography')
+makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel')
+checkdepends=('python-pytest')
+optdepends=('rclone: mount S3/R2 buckets holding an archive')
+source=("$pkgname-$pkgver.tar.gz::https://files.pythonhosted.org/packages/source/${pkgname::1}/$pkgname/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  # src layout: the wheel is not installed yet, so point at the source tree.
+  PYTHONPATH="$PWD/src" python -m pytest
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 LICENSE   "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 FORMAT.md "$pkgdir/usr/share/doc/$pkgname/FORMAT.md"
+}
