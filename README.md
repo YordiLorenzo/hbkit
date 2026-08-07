@@ -11,8 +11,7 @@ a tree, and pull out what you want. Works headless on Linux and macOS, including
 own Hyper Backup Explorer is awkward or unavailable.
 
 ```sh
-brew install lz4          # or: sudo apt install liblz4-1
-pip install hbkit
+brew install YordiLorenzo/tap/hbkit     # macOS / Linux, pulls in liblz4 for you
 
 hbk /Volumes/Backup doctor              # can this archive be recovered?
 hbk /Volumes/Backup doctor -p secret    # encrypted? add a password
@@ -20,8 +19,20 @@ hbk-tui /Volumes/Backup                 # browse and select interactively
 hbk /Volumes/Backup get "/Photos/*" ~/restore
 ```
 
-`liblz4` is a runtime requirement — chunks are raw LZ4 blocks. It is present on most
-systems already; set `HBK_LZ4` if yours lives somewhere unusual.
+### Other ways to install
+
+```sh
+pip install hbkit          # any platform; also needs liblz4 (see below)
+pipx install hbkit         # same, kept in its own environment
+```
+
+Arch users can build from [`packaging/aur/PKGBUILD`](packaging/aur/PKGBUILD); a nixpkgs
+derivation lives in [`packaging/nix/package.nix`](packaging/nix/package.nix).
+
+`liblz4` is a runtime requirement — chunks are raw LZ4 blocks, loaded with `dlopen`, so a
+missing library only shows up when you extract something. The Homebrew formula installs it
+for you. Otherwise: `brew install lz4`, `sudo apt install liblz4-1`, or
+`sudo pacman -S lz4`. Set `HBK_LZ4` if yours lives somewhere unusual.
 
 ---
 
