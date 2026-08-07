@@ -41,6 +41,6 @@ python3Packages.buildPythonApplication rec {
     changelog = "https://github.com/YordiLorenzo/hbkit/releases/tag/v${version}";
     license = lib.licenses.mit;
     mainProgram = "hbk";
-    maintainers = with lib.maintainers; [ ];
+    maintainers = with lib.maintainers; [ yordilorenzo ];
   };
 }
