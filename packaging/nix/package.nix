@@ -1,8 +1,11 @@
 # Derivation for nixpkgs. Destination: pkgs/by-name/hb/hbkit/package.nix
 {
   lib,
+  stdenv,
   python3Packages,
   fetchPypi,
+  lz4,
+  makeWrapper,
 }:
 
 python3Packages.buildPythonApplication rec {
@@ -17,11 +20,22 @@ python3Packages.buildPythonApplication rec {
 
   build-system = [ python3Packages.hatchling ];
 
+  nativeBuildInputs = [ makeWrapper ];
+
   dependencies = with python3Packages; [
     textual
     pynacl
     cryptography
   ];
+
+  # hbkit dlopen()s liblz4 by name instead of linking it, and nothing is on a default
+  # library search path here, so point it straight at the store path.
+  postFixup = ''
+    for exe in hbk hbk-tui; do
+      wrapProgram "$out/bin/$exe" \
+        --set HBK_LZ4 "${lz4.lib}/lib/liblz4${stdenv.hostPlatform.extensions.sharedLibrary}"
+    done
+  '';
 
   nativeCheckInputs = [ python3Packages.pytestCheckHook ];
 

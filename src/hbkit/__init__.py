@@ -1,6 +1,6 @@
 """hbkit - recover files from Synology Hyper Backup (.hbk) archives without Synology software."""
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 from .archive import (Archive, NeedPassword, UnsupportedArchive,  # noqa: F401
                       find_archive_root, is_archive)

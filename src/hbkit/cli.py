@@ -87,12 +87,17 @@ def all_files(db):
     """)
 
 
+def resolve_password(password):
+    """-p wins, then HBK_PASSWORD. None means "prompt if the archive turns out to need it"."""
+    return password or os.environ.get("HBK_PASSWORD")
+
+
 def open_archive(archive, password=None):
     """Open, prompting for a password only if the archive turns out to be encrypted."""
     try:
         return hbk.Archive(archive, password=password)
     except hbk.NeedPassword:
-        pw = password or os.environ.get("HBK_PASSWORD")
+        pw = resolve_password(password)
         if not pw:
             if not sys.stdin.isatty():
                 sys.exit("archive is encrypted - pass --password or set HBK_PASSWORD")
@@ -226,7 +231,7 @@ def main() -> int:
 
     if cmd == "doctor":
         from . import doctor
-        r = doctor.diagnose(archive, password=password)
+        r = doctor.diagnose(archive, password=resolve_password(password))
         print(doctor.render(r))
         return 0 if (r.ok and not r.blockers) else 1
 

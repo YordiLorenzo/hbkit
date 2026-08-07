@@ -415,3 +415,66 @@ def test_cache_dir_prefers_new_name_but_honours_the_old_one(tmp_path, monkeypatc
     assert hbki._default_cache().endswith("/.cache/hbk-recovery")   # legacy honoured
     (home / ".cache" / "hbkit").mkdir(parents=True)
     assert hbki._default_cache().endswith("/.cache/hbkit")          # new wins once present
+
+
+def test_runner_hands_its_import_path_to_workers(tmp_path, monkeypatch):
+    """Workers are spawned as `sys.executable -m hbkit.runner`, and sys.executable is the
+    *unwrapped* interpreter. Where hbkit reaches sys.path through a wrapper script instead
+    of site-packages - a Nix build, a PYTHONPATH-based distro package - that interpreter
+    cannot import hbkit and every worker dies before extracting a byte. Caught by packaging
+    for Nix, invisible to a pip install."""
+    import io
+
+    from hbkit import runner as hbk_runner
+
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, cmd, env=None, **kw):
+            seen["cmd"], seen["env"] = cmd, env
+            self.stdout, self.stderr = io.StringIO(""), io.StringIO("")
+
+        def poll(self):
+            return 0
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(hbk_runner.subprocess, "Popen", FakePopen)
+    r = hbk_runner.Runner("/archive", str(tmp_path), [("/a", 0, 1, 0)], n_workers=1)
+    r.start()
+    r.cleanup()
+
+    assert seen["cmd"][1:3] == ["-m", "hbkit.runner"]
+    paths = seen["env"]["PYTHONPATH"].split(os.pathsep)
+    assert any(os.path.isdir(os.path.join(p, "hbkit")) for p in paths), \
+        f"no path in PYTHONPATH provides hbkit: {paths}"
+
+
+@pytest.mark.parametrize(("flag", "env", "want"), [
+    (None, "env", "env"),          # the bug: doctor ignored HBK_PASSWORD entirely
+    ("flag", "env", "flag"),       # an explicit -p still wins
+    (None, None, None),            # nothing set: leave it to the prompt
+])
+def test_doctor_honours_the_password_environment_variable(monkeypatch, flag, env, want):
+    """`-p` and HBK_PASSWORD are documented as equivalent, but doctor forwarded only `-p`,
+    so `HBK_PASSWORD=... hbk <archive> doctor` called a readable encrypted archive
+    unrecoverable."""
+    from hbkit import cli, doctor
+
+    seen = {}
+
+    class Result:
+        ok, blockers = True, []
+
+    monkeypatch.setattr(doctor, "diagnose",
+                        lambda a, password=None: (seen.update(pw=password), Result())[1])
+    monkeypatch.setattr(doctor, "render", lambda r: "")
+    monkeypatch.delenv("HBK_PASSWORD", raising=False)
+    if env:
+        monkeypatch.setenv("HBK_PASSWORD", env)
+
+    argv = ["hbk", "/some/archive", "doctor"] + (["-p", flag] if flag else [])
+    monkeypatch.setattr(sys, "argv", argv)
+    assert cli.main() == 0
+    assert seen["pw"] == want

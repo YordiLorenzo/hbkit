@@ -140,6 +140,12 @@ class Runner:
                 json.dump({"root": self.root, "dest": self.dest, "verify": self.verify,
                            "check": self.check, "strict": self.strict, "items": slice_}, fh)
             env = dict(os.environ)
+            # sys.executable is the *unwrapped* interpreter. Where hbkit reaches
+            # sys.path through a wrapper script rather than site-packages - a Nix
+            # build, a PYTHONPATH-based distro package - that interpreter cannot
+            # import hbkit, and every worker dies before extracting a byte. Hand
+            # the parent's own path down so the child resolves what the parent did.
+            env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
             if self.password is not None:      # env, not the job file - no secret on disk
                 env["HBK_PASSWORD"] = self.password
             p = subprocess.Popen(
