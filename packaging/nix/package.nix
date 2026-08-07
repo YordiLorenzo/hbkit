@@ -10,12 +10,12 @@
 
 python3Packages.buildPythonApplication rec {
   pname = "hbkit";
-  version = "0.4.2";
+  version = "0.4.3";
   pyproject = true;
 
   src = fetchPypi {
     inherit pname version;
-    hash = "sha256-JQ6GurIpDDD80WJUQgPkC7/yaYN4UwaKTOCspXey10E=";
+    hash = "sha256-J1PSRjqKnE9X2aIHP7CGCRO7qfAvh6kijexMjPCS3WU=";
   };
 
   build-system = [ python3Packages.hatchling ];

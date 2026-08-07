@@ -1,6 +1,6 @@
 pkgbase = hbkit
 	pkgdesc = Recover files from Synology Hyper Backup (.hbk) archives without Synology software
-	pkgver = 0.4.2
+	pkgver = 0.4.3
 	pkgrel = 1
 	url = https://github.com/YordiLorenzo/hbkit
 	arch = any
@@ -15,7 +15,7 @@ pkgbase = hbkit
 	depends = python-pynacl
 	depends = python-cryptography
 	optdepends = rclone: mount S3/R2 buckets holding an archive
-	source = hbkit-0.4.2.tar.gz::https://files.pythonhosted.org/packages/source/h/hbkit/hbkit-0.4.2.tar.gz
-	sha256sums = 250e86bab2290c30fcd162544203e40bbff269837853068a4ce0aca577b2d741
+	source = hbkit-0.4.3.tar.gz::https://files.pythonhosted.org/packages/source/h/hbkit/hbkit-0.4.3.tar.gz
+	sha256sums = 2753d2463a8a9c4f57d9a2073fb0860913bba9f02f87a9228dec4c8cf092dd65
 
 pkgname = hbkit
