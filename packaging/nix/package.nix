@@ -12,6 +12,7 @@ python3Packages.buildPythonApplication rec {
   pname = "hbkit";
   version = "0.4.3";
   pyproject = true;
+  __structuredAttrs = true;
 
   src = fetchPypi {
     inherit pname version;
