@@ -8,3 +8,6 @@ build/
 .pytest_cache/
 .DS_Store
 *.part
+
+# Local-only fixtures: hashes of source files that only exist on this machine.
+.local/
