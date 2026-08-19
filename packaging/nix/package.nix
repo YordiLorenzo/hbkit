@@ -8,14 +8,14 @@
   makeWrapper,
 }:
 
-python3Packages.buildPythonApplication rec {
+python3Packages.buildPythonApplication (finalAttrs: {
   pname = "hbkit";
   version = "0.4.3";
   pyproject = true;
   __structuredAttrs = true;
 
   src = fetchPypi {
-    inherit pname version;
+    inherit (finalAttrs) pname version;
     hash = "sha256-J1PSRjqKnE9X2aIHP7CGCRO7qfAvh6kijexMjPCS3WU=";
   };
 
@@ -53,9 +53,9 @@ python3Packages.buildPythonApplication rec {
       R2 over an rclone mount.
     '';
     homepage = "https://github.com/YordiLorenzo/hbkit";
-    changelog = "https://github.com/YordiLorenzo/hbkit/releases/tag/v${version}";
+    changelog = "https://github.com/YordiLorenzo/hbkit/releases/tag/v${finalAttrs.version}";
     license = lib.licenses.mit;
     mainProgram = "hbk";
     maintainers = with lib.maintainers; [ yordilorenzo ];
   };
-}
+})
