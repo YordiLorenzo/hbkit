@@ -1,5 +1,3 @@
-
-
 # hbkit
 
 [![PyPI](https://img.shields.io/pypi/v/hbkit)](https://pypi.org/project/hbkit/)
@@ -34,7 +32,7 @@ derivation lives in [`packaging/nix/package.nix`](packaging/nix/package.nix).
 `liblz4` is a runtime requirement — chunks are raw LZ4 blocks, loaded with `dlopen`, so a
 missing library only shows up when you extract something. The Homebrew formula installs it
 for you. Otherwise: `brew install lz4`, `sudo apt install liblz4-1`, or
-`sudo pacman -S lz4`. Set `HBK_LZ4` if yours lives somewhere unusual. Note: Windows is not verified for extraction; the package imports and runs, but chunk extraction has not been tested on that platform.
+`sudo pacman -S lz4`. Set `HBK_LZ4` if yours lives somewhere unusual.
 
 ---
 
@@ -261,6 +259,8 @@ Read this before trusting it with the only copy of anything.
   bytes, which is the one thing a recovery tool must never do.
 - **Whole-file dedup** (`off_virtual_file = -1`, files living in `Pool/file_pool`) is not
   decoded. One file in 501,278 in the reference archive.
+- **Windows is untested for extraction.** CI installs the package and checks that it
+  imports, but no archive has been rebuilt on Windows. Linux and macOS are verified.
 
 ## The format
 
