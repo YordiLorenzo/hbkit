@@ -3,7 +3,7 @@
   lib,
   stdenv,
   python3Packages,
-  fetchPypi,
+  fetchFromGitHub,
   lz4,
   makeWrapper,
 }:
@@ -14,9 +14,11 @@ python3Packages.buildPythonApplication (finalAttrs: {
   pyproject = true;
   __structuredAttrs = true;
 
-  src = fetchPypi {
-    inherit (finalAttrs) pname version;
-    hash = "sha256-J1PSRjqKnE9X2aIHP7CGCRO7qfAvh6kijexMjPCS3WU=";
+  src = fetchFromGitHub {
+    owner = "YordiLorenzo";
+    repo = "hbkit";
+    tag = "v${finalAttrs.version}";
+    hash = "sha256-F3LH5bvYbgdb3xOrb2FZcZ5vuS4KzFKvJvw6GlzsEgU=";
   };
 
   build-system = [ python3Packages.hatchling ];
