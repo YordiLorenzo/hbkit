@@ -478,3 +478,13 @@ def test_doctor_honours_the_password_environment_variable(monkeypatch, flag, env
     monkeypatch.setattr(sys, "argv", argv)
     assert cli.main() == 0
     assert seen["pw"] == want
+
+
+def test_lazycats_lists_shards_before_any_are_opened():
+    """`doctor` describes an archive without extracting from it, so nothing has opened a
+    file_chunk shard by the time it prints them. Iterating the dict reported an empty list
+    and made a healthy archive look malformed."""
+    cats = hbk._LazyCats({4: "/nonexistent/file_chunk4.index",
+                          0: "/nonexistent/file_chunk0.index"})
+    assert cats.known == [0, 4]
+    assert len(cats) == 0, "listing shards must not open them"

@@ -210,6 +210,16 @@ class _LazyCats(dict):
     def values(self):
         return [v for v in dict.values(self)]
 
+    @property
+    def known(self) -> list[int]:
+        """Every shard id the archive has, opened or not.
+
+        Iterating the dict yields only what something has already touched, so a
+        caller that just wants to *describe* the archive - `doctor` - has to ask
+        for this instead, or it reports an archive with shards as having none.
+        """
+        return sorted(self._dirs)
+
 
 def is_archive(d: str) -> bool:
     return os.path.isdir(os.path.join(d, "Pool")) and os.path.isdir(os.path.join(d, "Config"))

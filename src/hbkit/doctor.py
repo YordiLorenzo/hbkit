@@ -88,7 +88,7 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
     r.fact("virtual_file record", f"{arc.vf.record_size} B")
     r.fact("chunk_index record", f"{arc.ci.record_size} B "
                                  f"({'v3' if arc.ci.record_size == 29 else 'v1/v2'})")
-    r.fact("file_chunk shards", ", ".join(str(k) for k in sorted(arc.fc)))
+    r.fact("file_chunk shards", ", ".join(str(k) for k in arc.fc.known))
     r.check("virtual_file layout known", arc.vf.record_size == 56, f"{arc.vf.record_size} B")
     r.check("chunk_index layout known", arc.ci.record_size in (16, 29), f"{arc.ci.record_size} B")
 
