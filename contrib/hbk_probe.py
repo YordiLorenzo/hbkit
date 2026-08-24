@@ -2,7 +2,7 @@
 
 Usage:  python3 hbk_probe.py <archive.hbk> <filename-substring> [-p PASSWORD]
 
-Reads only. Prints raw record bytes; no file contents are shown.
+Reads only. Prints record bytes and sizes, never file contents.
 """
 import struct, sys
 
@@ -18,50 +18,53 @@ row = next((r for r in cli.all_files(db) if needle in r[0].lower()), None)
 if row is None:
     sys.exit(f"no file matching {needle!r}")
 p, ovf, size, _ = row
-print(f"file        : {p}")
+REC, HDR = arc.ci.record_size, 64
+
 print(f"size        : {size:,}")
-print(f"ovf         : {ovf}")
-print(f"ci.total    : {arc.ci.total:,}   record_size={arc.ci.record_size}")
-print(f"vf.total    : {arc.vf.total:,}")
+print(f"ci.total    : {arc.ci.total:,}   record_size={REC}")
 
 v = struct.unpack(">q", arc.vf.read(ovf, 8))[0]
 shard, off = v >> 48, v & 0xFFFFFFFFFFFF
-print(f"vf record   : {v:#018x}  -> file_chunk{shard} @ {off:,}")
 fc = arc.fc.get(shard)
-if fc is None:
-    sys.exit(f"no file_chunk{shard}.index")
-print(f"fc{shard}.total  : {fc.total:,}")
+print(f"vf record   : {v:#018x}  -> file_chunk{shard} @ {off:,}  (fc.total {fc.total:,})")
 
-# how many chunk keys does this file need, roughly
-blob = fc.read(off, 8 * 4096)
-keys = [struct.unpack(">q", blob[j:j + 8])[0] for j in range(0, len(blob) - 7, 8)]
+def sane(k):
+    """A key must land inside chunk_index AND on a record boundary."""
+    return 0 <= k < arc.ci.total and (k - HDR) % REC == 0
 
-def in_range(k):
-    return 0 <= k < arc.ci.total
+# Walk exactly like extract() does: stop as soon as the file is complete.
+# The question this answers is whether the first unusable key arrives BEFORE or
+# AFTER the file's bytes are all accounted for.
+got, i, first_bad, rows = 0, 0, None, []
+while got < size and i < 200_000:
+    blob = fc.read(off + i * 8, 8 * 4096)
+    if not blob:
+        print(f"\nchunk list exhausted at key {i}, {got:,}/{size:,} bytes")
+        break
+    for j in range(0, len(blob) - 7, 8):
+        if got >= size:
+            break
+        k = struct.unpack(">q", blob[j:j + 8])[0]
+        if not sane(k):
+            if first_bad is None:
+                first_bad = (i, k)
+            print(f"\nUNUSABLE KEY at index {i}: {k:#018x}")
+            print(f"  bytes accumulated so far : {got:,} of {size:,}  ({100*got/size:.2f}%)")
+            print(f"  short by                 : {size - got:,} bytes")
+            print(f"  in_range={0 <= k < arc.ci.total}  boundary={(k - HDR) % REC == 0}")
+            print(f"  previous 6 keys:")
+            for pi, pk, pn in rows[-6:]:
+                print(f"    [{pi:5}] {pk:#018x}  ulen={pn:,}")
+            sys.exit(0)
+        bid, boff = arc.chunk_ref(k)
+        idx, _fh = arc._bucket(bid)
+        n = arc._brec[bid]
+        ulen = struct.unpack(">III", idx[boff:boff + n][:12])[2]
+        got += ulen
+        rows.append((i, k, ulen))
+        i += 1
 
-bad = [(i, k) for i, k in enumerate(keys) if not in_range(k)]
-print(f"\nkeys read   : {len(keys)}   out-of-range: {len(bad)}")
-print("\nfirst 8 keys:")
-for i, k in enumerate(keys[:8]):
-    print(f"  [{i:4}] {k:#018x}  {'OK ' if in_range(k) else 'BAD'}  low56={k & ((1<<56)-1):,}")
-
-if bad:
-    i, k = bad[0]
-    lo56 = k & ((1 << 56) - 1)
-    lo48 = k & ((1 << 48) - 1)
-    print(f"\nfirst BAD key at index {i}: {k:#018x}")
-    print(f"  top byte    : {k >> 56:#04x}      low56 = {lo56:,}  in range: {in_range(lo56)}")
-    print(f"  top 16 bits : {k >> 48:#06x}    low48 = {lo48:,}  in range: {in_range(lo48)}")
-    for label, cand in (("low56", lo56), ("low48", lo48)):
-        if in_range(cand):
-            rec = arc.ci.read(cand, arc.ci.record_size)
-            print(f"  record at {label} ({cand:,}): {rec.hex(' ')}")
-            if len(rec) >= 9:
-                print(f"      flags=0x{rec[0]:02x}  as>ii={struct.unpack('>ii', rec[1:9])}")
-
-print("\nfor comparison, a GOOD key's record:")
-g = next((k for k in keys if in_range(k)), None)
-if g is not None:
-    rec = arc.ci.read(g, arc.ci.record_size)
-    print(f"  key {g:#018x} @ {g:,}: {rec.hex(' ')}")
-    print(f"      flags=0x{rec[0]:02x}  as>ii={struct.unpack('>ii', rec[1:9])}")
+print(f"\nfile completes cleanly: {got:,}/{size:,} bytes over {i:,} chunks")
+if rows:
+    us = [r[2] for r in rows]
+    print(f"chunk sizes: min {min(us):,}  max {max(us):,}  mean {sum(us)//len(us):,}")
