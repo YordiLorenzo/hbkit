@@ -20,6 +20,9 @@ row = next((r for r in cli.all_files(db) if needle in r[0].lower()), None)
 if row is None:
     sys.exit(f"no file matching {needle!r}")
 _p, ovf, size, _ = row
+if ovf is None or ovf < 0:
+    sys.exit("this file is whole-file deduplicated into Pool/file_pool, which hbkit does "
+             "not decode. It has no chunk list, so there is nothing here to probe.")
 REC, HDR = arc.ci.record_size, 64
 
 v = struct.unpack(">q", arc.vf.read(ovf, 8))[0]
@@ -42,16 +45,16 @@ def usable(k):
 # The list cannot extend past the end of its own file_chunk family, so bound the walk
 # on that rather than on a guessed entry count: a 3 GB file legitimately needs hundreds
 # of thousands of chunks, and a fixed cap would report it as a rebuild failure.
-limit = (fc.total - off) // 8
+limit, tail = divmod(fc.total - off, 8)
 got = i = skipped = 0
 breaks = []
 stop = None
 while got < size and i < limit:
     blob = fc.read(off + i * 8, 8 * 4096)
     if len(blob) < 8:
-        stop = (f"chunk list ends mid-entry at index {i} "
-                f"({len(blob)} trailing byte{'' if len(blob) == 1 else 's'}): index is truncated"
-                if blob else f"chunk list ends at index {i}")
+        # Cat computes shard offsets from a fixed shard size rather than measuring them,
+        # so a short read here means that assumption does not hold for this archive.
+        stop = f"unexpected short read at index {i}: shard sizes are not what Cat assumes"
         break
     j = 0
     while j <= len(blob) - 8 and got < size:
@@ -86,6 +89,9 @@ if stop:
 elif got < size and i >= limit:
     print(f"\nreached the end of file_chunk{shard} after {i:,} entries with the file "
           f"still incomplete: the chunk list does not account for all of it")
+    if tail:
+        print(f"  the index also ends {tail} byte{'' if tail == 1 else 's'} into an "
+              f"incomplete entry, so it is truncated")
 
 print(f"\n{'=' * 60}")
 print(f"rebuilt      : {got:,} of {size:,}")
