@@ -25,10 +25,19 @@ REC, HDR = arc.ci.record_size, 64
 v = struct.unpack(">q", arc.vf.read(ovf, 8))[0]
 shard, off = v >> 48, v & 0xFFFFFFFFFFFF
 fc = arc.fc.get(shard)
+if fc is None:
+    sys.exit(f"virtual_file points at file_chunk{shard}.index, which this archive "
+             f"does not have (present: {arc.fc.known})")
 print(f"size {size:,}   ci.total {arc.ci.total:,}   rec {REC}   fc{shard} @ {off:,}")
 
 def usable(k):
-    return 0 <= k < arc.ci.total and (k - HDR) % REC == 0
+    """A key must point at a whole record that starts after the shard-0 header.
+
+    The lower bound matters: with 16-byte records, 0/16/32/48 all satisfy the
+    alignment test, so zero-filled padding would be handed to chunk_ref() as if it
+    were a record and abort the probe instead of being skipped.
+    """
+    return HDR <= k and k + REC <= arc.ci.total and (k - HDR) % REC == 0
 
 got = i = skipped = 0
 breaks = []
@@ -67,7 +76,11 @@ while got < size and i < 400_000:
 
 print(f"\n{'=' * 60}")
 print(f"rebuilt      : {got:,} of {size:,}")
-print(f"EXACT MATCH  : {got == size}")
+print(f"LENGTH MATCH : {got == size}")
+print("  note: each chunk was checked against its own stored MD5, which proves the chunk\n"
+      "  is intact. It does NOT prove these are this file's chunks in this order, and the\n"
+      "  archive stores no whole-file digest to check that against. A length match is\n"
+      "  strong evidence the skipped entries were not chunk data, not proof of it.")
 print(f"chunks used  : {i - skipped:,}   entries skipped: {skipped:,}   breaks: {len(breaks)}")
 if breaks:
     runs = {}
