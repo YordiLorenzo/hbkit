@@ -39,12 +39,19 @@ def usable(k):
     """
     return HDR <= k and k + REC <= arc.ci.total and (k - HDR) % REC == 0
 
+# The list cannot extend past the end of its own file_chunk family, so bound the walk
+# on that rather than on a guessed entry count: a 3 GB file legitimately needs hundreds
+# of thousands of chunks, and a fixed cap would report it as a rebuild failure.
+limit = (fc.total - off) // 8
 got = i = skipped = 0
 breaks = []
-while got < size and i < 400_000:
+stop = None
+while got < size and i < limit:
     blob = fc.read(off + i * 8, 8 * 4096)
-    if not blob:
-        print(f"\nlist exhausted at index {i}, {got:,}/{size:,}")
+    if len(blob) < 8:
+        stop = (f"chunk list ends mid-entry at index {i} "
+                f"({len(blob)} trailing byte{'' if len(blob) == 1 else 's'}): index is truncated"
+                if blob else f"chunk list ends at index {i}")
         break
     j = 0
     while j <= len(blob) - 8 and got < size:
@@ -73,6 +80,12 @@ while got < size and i < 400_000:
         got += len(arc.read_chunk(bid, boff, verify=True))   # MD5-checked
         i += 1
         j += 8
+
+if stop:
+    print(f"\n{stop}")
+elif got < size and i >= limit:
+    print(f"\nreached the end of file_chunk{shard} after {i:,} entries with the file "
+          f"still incomplete: the chunk list does not account for all of it")
 
 print(f"\n{'=' * 60}")
 print(f"rebuilt      : {got:,} of {size:,}")
