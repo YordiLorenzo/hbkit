@@ -287,6 +287,18 @@ def test_cat_single_shard_still_works(tmp_path, monkeypatch):
     c.close()
 
 
+def test_cat_preserves_sparse_shard_offsets(tmp_path, monkeypatch):
+    from hbkit import archive as A
+    blob = _make_shards(tmp_path, [128, 10], 128, monkeypatch)
+    (tmp_path / "1.idx.2").rename(tmp_path / "2.idx.2")
+    c = A.Cat(str(tmp_path))
+    assert c.starts == [0, 256]
+    assert c.total == 266
+    assert c.read(128, 1) == b""
+    assert c.read(256, 10) == blob[128:]
+    c.close()
+
+
 # --------------------------------------------------- rclone mount helper (no network)
 
 def test_mount_profiles_pick_the_right_cache_mode(monkeypatch):
@@ -478,6 +490,24 @@ def test_doctor_honours_the_password_environment_variable(monkeypatch, flag, env
     monkeypatch.setattr(sys, "argv", argv)
     assert cli.main() == 0
     assert seen["pw"] == want
+
+
+@pytest.mark.parametrize("flag", ["-s", "-n", "--sample"])
+def test_doctor_forwards_sample_count(monkeypatch, flag):
+    from hbkit import cli, doctor
+
+    seen = {}
+
+    class Result:
+        ok, blockers = True, []
+
+    monkeypatch.setattr(doctor, "diagnose",
+                        lambda a, sample=10, password=None:
+                        (seen.update(sample=sample), Result())[1])
+    monkeypatch.setattr(doctor, "render", lambda r: "")
+    monkeypatch.setattr(sys, "argv", ["hbk", "/some/archive", "doctor", flag, "2"])
+    assert cli.main() == 0
+    assert seen["sample"] == 2
 
 
 def test_lazycats_lists_shards_before_any_are_opened():

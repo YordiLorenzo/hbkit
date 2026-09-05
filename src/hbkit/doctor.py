@@ -202,7 +202,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("archive")
     ap.add_argument("-p", "--password", help="for encrypted archives")
-    ap.add_argument("-n", "--sample", type=int, default=10,
+    ap.add_argument("-n", "-s", "--sample", type=int, default=10,
                     help="files to rebuild per share as proof (default 10)")
     a = ap.parse_args()
     r = diagnose(a.archive, a.sample, password=a.password)
