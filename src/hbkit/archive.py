@@ -136,12 +136,13 @@ class Cat:
                 found[n] = (gen, f)
         if not found:
             raise FileNotFoundError(f"no .idx shards in {d}")
-        self.files = [found[k][1] for k in sorted(found)]
-        n = len(self.files)
+        shard_ids = sorted(found)
+        self.files = [found[k][1] for k in shard_ids]
         last = os.path.getsize(os.path.join(d, self.files[-1]))
-        self.sizes = [SHARD_SIZE] * (n - 1) + [last]
-        self.starts = [i * SHARD_SIZE for i in range(n)]
-        self.total = (n - 1) * SHARD_SIZE + last
+        self.sizes = [SHARD_SIZE] * (len(self.files) - 1) + [last]
+        self.starts = [k * SHARD_SIZE for k in shard_ids]
+        self.total = self.starts[-1] + last
+        self._positions = dict(zip(shard_ids, range(len(shard_ids))))
         self._fh: dict[int, object] = {}
         # Shard 0 carries a 64-byte header that declares the record size, so readers do
         # not have to hardcode per-DSM-version layouts.
@@ -160,15 +161,18 @@ class Cat:
         """Read n bytes at logical offset off, spanning shards as needed."""
         out = b""
         i = off // SHARD_SIZE
-        while n > 0 and i < len(self.files):
-            st = self.starts[i]
-            take = min(n, st + self.sizes[i] - off)
+        while n > 0:
+            pos = self._positions.get(i)
+            if pos is None:
+                break
+            st = self.starts[pos]
+            take = min(n, st + self.sizes[pos] - off)
             if take <= 0:
                 break
-            fh = self._fh.get(i)
+            fh = self._fh.get(pos)
             if fh is None:
-                fh = self._fh[i] = open(os.path.join(self.d, self.files[i]), "rb",
-                                        buffering=INDEX_BUF)
+                fh = self._fh[pos] = open(os.path.join(self.d, self.files[pos]), "rb",
+                                          buffering=INDEX_BUF)
             fh.seek(off - st)
             got = fh.read(take)
             out += got
