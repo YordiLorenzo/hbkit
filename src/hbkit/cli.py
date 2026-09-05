@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Recover files from a Synology Hyper Backup (.hbk) archive. No Synology software needed.
 
-    hbk <archive> doctor [-s N]                        check whether it can be recovered
+  hbk <archive> doctor                               check whether it can be recovered
   hbk <archive> info                                 show task, shares, codec
   hbk <archive> list  [pattern]                      search the file index
   hbk <archive> get   <glob> <dest> [-j N] [--strict] extract (keeps tree + mtimes)
