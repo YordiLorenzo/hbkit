@@ -231,7 +231,23 @@ def main() -> int:
 
     if cmd == "doctor":
         from . import doctor
-        r = doctor.diagnose(archive, password=resolve_password(password))
+        sample = None
+        for flag in ("-s", "-n", "--sample"):
+            if flag in a[2:]:
+                i = a.index(flag, 2)
+                try:
+                    sample = int(a[i + 1])
+                except (IndexError, ValueError):
+                    print(f"{flag} requires a positive integer", file=sys.stderr)
+                    return 2
+                if sample < 1:
+                    print(f"{flag} requires a positive integer", file=sys.stderr)
+                    return 2
+                break
+        kw = {"password": resolve_password(password)}
+        if sample is not None:
+            kw["sample"] = sample
+        r = doctor.diagnose(archive, **kw)
         print(doctor.render(r))
         return 0 if (r.ok and not r.blockers) else 1
 
