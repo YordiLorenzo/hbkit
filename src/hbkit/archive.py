@@ -118,8 +118,17 @@ class Cat:
     Shards are a fixed SHARD_SIZE except the last, so offsets are computed rather than
     measured. That matters enormously on network mounts: stat-ing every shard cost ~2,600
     round-trips on a 3 TB archive (minutes before reading a byte). We now do one directory
-    listing plus a single stat of the final shard. If the assumption were ever wrong, a
-    short read surfaces as a chunk MD5 failure - loudly - never as silent corruption.
+    listing plus a single stat of the final shard.
+
+    The numbering can have GAPS: a real archive was missing 7.idx from one family and
+    27.idx from another. A shard's logical position therefore comes from its filename,
+    never from its position in the sorted list - compacting the list slides every shard
+    after a gap 8 MiB early, and the wrong bytes still parse as plausible records. That
+    was issue #1: valid chunk lists read as garbage for any file stored past a gap.
+
+    Reading inside a gap returns nothing rather than the neighbouring shard's bytes, so
+    a hole surfaces as a short read and then a loud failure upstream, never as silent
+    corruption.
     """
 
     def __init__(self, d: str):
