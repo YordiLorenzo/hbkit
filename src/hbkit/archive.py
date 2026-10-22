@@ -81,6 +81,17 @@ def lz4():
     return _lz4
 
 
+def _decompress(raw: bytes, ulen: int) -> bytes | None:
+    """A chunk payload: a raw LZ4 block, else zlib (compress type 4). None if neither fits."""
+    dst = ctypes.create_string_buffer(ulen)
+    if lz4().LZ4_decompress_safe(raw, dst, len(raw), ulen) == ulen:
+        return dst.raw
+    try:
+        return zlib.decompress(raw)
+    except zlib.error:
+        return None
+
+
 # ------------------------------------------------------------ path resolution
 
 _SHARD = re.compile(r"^(\d+)\.idx(?:\.(\d+))?$")
@@ -280,6 +291,7 @@ class Archive:
         self._bidx: OrderedDict[int, bytes] = OrderedDict()
         self._bdat: OrderedDict[int, object] = OrderedDict()
         self._brec: dict[int, int] = {}
+        self._bkey: dict[int, int] = {}      # bucket id -> index into crypto.data_keys
         self._password = None
         if self.is_encrypted():
             if password is None:
@@ -311,7 +323,7 @@ class Archive:
         return out
 
     def _open_crypto(self, password: str):
-        """Unwrap the version key using the password. Raises WrongPassword on mismatch."""
+        """Unwrap every version's data key using the password. Raises WrongPassword on mismatch."""
         import sqlite3
 
         from .crypto import ArchiveCrypto
@@ -323,11 +335,11 @@ class Archive:
         with open(resolve(f"{self.root}/Config", "public.pem"), "rb") as fh:
             pub = fh.read()
         db = sqlite3.connect(f"file:{resolve(f'{self.root}/Pool', 'vkey.db')}?immutable=1", uri=True)
-        row = db.execute("SELECT rsa_vkey, rsa_vkey_iv FROM vkey ORDER BY version_id").fetchone()
+        rows = db.execute("SELECT rsa_vkey, rsa_vkey_iv FROM vkey ORDER BY version_id").fetchall()
         db.close()
-        if not row:
+        if not rows:
             raise UnsupportedArchive("encrypted archive has no rows in vkey db")
-        return ArchiveCrypto(password, unikey, pub, bytes(row[0]), bytes(row[1]))
+        return ArchiveCrypto(password, unikey, pub, [(bytes(k), bytes(iv)) for k, iv in rows])
 
     def decrypt_name(self, stored: str) -> str:
         """Decrypt a stored filename, or return it unchanged for plaintext archives."""
@@ -415,20 +427,32 @@ class Archive:
             raise ValueError(f"bucket index CRC32 mismatch b{bid}@{boff}")
         fh.seek(off)
         raw = fh.read(clen)
+        md5 = rec[12:28]
         if self.crypto is not None:
-            raw = self.crypto.decrypt_chunk(raw)
-            clen = len(raw)
-        dst = ctypes.create_string_buffer(ulen)
-        n = lz4().LZ4_decompress_safe(raw, dst, clen, ulen)
-        data = dst.raw[:n] if n > 0 else b""
-        if n != ulen:
-            try:
-                data = zlib.decompress(raw)                 # compress type 4
-            except Exception:
-                raise ValueError(f"decompress failed b{bid}@{boff} lz4={n} want={ulen}") from None
-        if verify and hashlib.md5(data).digest() != rec[12:28]:
+            return self._decrypt(bid, boff, raw, ulen, md5)
+        data = _decompress(raw, ulen)
+        if data is None:
+            raise ValueError(f"decompress failed b{bid}@{boff} want={ulen}")
+        if verify and hashlib.md5(data).digest() != md5:
             raise ValueError(f"MD5 mismatch b{bid}@{boff}")
         return data
+
+    def _decrypt(self, bid: int, boff: int, raw: bytes, ulen: int, md5: bytes) -> bytes:
+        """Decrypt and decompress one chunk of an encrypted archive.
+
+        Each backup version encrypts its chunks with its own data key, and nothing records
+        which version wrote a bucket. Try the key that last worked for this bucket, then
+        the others, and accept a key only when the output matches the chunk's MD5, whatever
+        `verify` says: a wrong key can still decompress to the right length.
+        """
+        n = len(self.crypto.data_keys)
+        first = self._bkey.get(bid, 0)
+        for k in (first, *(i for i in range(n) if i != first)):
+            data = _decompress(self.crypto.decrypt_chunk(raw, k), ulen)
+            if data is not None and hashlib.md5(data).digest() == md5:
+                self._bkey[bid] = k
+                return data
+        raise ValueError(f"no data key decodes b{bid}@{boff} ({n} tried, want={ulen})")
 
     def extract(self, ovf: int, size: int, verify: bool = True, out=None, on_bytes=None):
         """Rebuild one file. Writes to `out` if given (returns byte count), else returns bytes.

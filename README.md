@@ -251,8 +251,9 @@ Read this before trusting it with the only copy of anything.
   contain plaintext names (not file contents). Delete it if that matters to you.
 - **Proven against a limited set of archives.** A 3 TB DSM 7 / Hyper Backup 4.1.2
   archive (unencrypted, LZ4, single version, single pool) and a small encrypted one from
-  the same DSM version, both verified byte-exact. Older record layouts
-  (16-byte `chunk_index`, 28-byte bucket records), zlib chunks and multi-version archives
+  the same DSM version, both verified byte-exact, plus a 7-version encrypted archive from
+  Hyper Backup 4.2.2 reported in [#4](https://github.com/YordiLorenzo/hbkit/issues/4).
+  Older record layouts (16-byte `chunk_index`, 28-byte bucket records) and zlib chunks
   are implemented from disassembly but have not met a real archive of that kind. `doctor`
   exists precisely so you can find out in seconds rather than mid-restore.
 - **Unknown layouts are refused, not guessed.** A wrong guess would mean silently wrong

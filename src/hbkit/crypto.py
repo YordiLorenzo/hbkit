@@ -13,6 +13,10 @@ instant correctness check - a wrong password is detected before reading any data
     viv   = crypto_box_seal_open(vkey.rsa_vkey_iv)   # 64B sealed box -> 16B AES IV
     chunk = LZ4( unpad( AES-256-CBC(ciphertext, vkey, viv) ) )
 
+vkey.db holds one (vkey, viv) row per backup version, and each version encrypts the
+chunks it writes with its own pair. Nothing records which version wrote a chunk, so a
+reader tries each pair and keeps the one whose output matches the chunk's MD5.
+
 Filenames are encrypted separately, with their own key, and stored base64 with '/'
 replaced by '_' (illegal in a filename):
 
@@ -69,7 +73,8 @@ class ArchiveCrypto:
     """Holds the unwrapped keys for one encrypted archive."""
 
     def __init__(self, password: str, unikey: str, public_key: bytes,
-                 sealed_vkey: bytes, sealed_viv: bytes):
+                 sealed_keys: list[tuple[bytes, bytes]]):
+        """`sealed_keys` is the (rsa_vkey, rsa_vkey_iv) rows of vkey.db, one per version."""
         nb, Cipher, algorithms, modes = _deps()
         self._Cipher, self._algorithms, self._modes = Cipher, algorithms, modes
 
@@ -80,8 +85,10 @@ class ArchiveCrypto:
         if pub != public_key:
             raise WrongPassword("password does not match this archive")
 
-        self.key = nb.crypto_box_seal_open(sealed_vkey, pub, priv)
-        self.iv = nb.crypto_box_seal_open(sealed_viv, pub, priv)
+        # (key, iv) per backup version, in version order, without repeats
+        self.data_keys = list(dict.fromkeys(
+            (nb.crypto_box_seal_open(k, pub, priv), nb.crypto_box_seal_open(iv, pub, priv))
+            for k, iv in sealed_keys))
         self.fn_key = hashlib.sha256(priv + uni).digest()
         self.fn_iv = hashlib.md5(uni + FILENAME_IV_SALT).digest()
 
@@ -89,8 +96,9 @@ class ArchiveCrypto:
         d = self._Cipher(self._algorithms.AES(key), self._modes.CBC(iv)).decryptor()
         return unpad(d.update(ct) + d.finalize())
 
-    def decrypt_chunk(self, ct: bytes) -> bytes:
-        return self._dec(ct, self.key, self.iv)
+    def decrypt_chunk(self, ct: bytes, which: int) -> bytes:
+        key, iv = self.data_keys[which]
+        return self._dec(ct, key, iv)
 
     def decrypt_name(self, stored: str) -> str:
         """Decrypt one path component. '_' stands in for '/' in the base64 alphabet."""

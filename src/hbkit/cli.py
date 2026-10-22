@@ -268,6 +268,15 @@ def main() -> int:
             print(f"  share {s}   versions={arc.share_versions(s)}")
         return 0
 
+    if cmd in ("get", "verify"):
+        # globs match paths, which start with "/", so a leading "-" is always a stray option
+        opts = [x for x in a[2:] if x.startswith("-")]
+        if opts:
+            print(f"unknown option {opts[0]}" + (
+                " (hbkit always reads the newest backup version)" if opts[0] == "--version" else ""),
+                file=sys.stderr)
+            return 2
+
     arc, db = open_index(archive, password)
 
     if cmd == "list":

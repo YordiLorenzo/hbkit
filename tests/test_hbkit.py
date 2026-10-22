@@ -231,6 +231,78 @@ def test_encrypted_names_and_content():
     arc.close()
 
 
+# ------------------------------------- one data key per backup version (no archive needed)
+
+def _multi_key_archive():
+    """An Archive holding just enough state for read_chunk: bucket N contains one chunk
+    encrypted with backup version N+1's data key, the way vkey.db lays them out."""
+    import ctypes
+    import hashlib
+    import io
+    import struct
+    import zlib
+
+    nb = pytest.importorskip("nacl.bindings")
+    try:
+        lib = hbk.lz4()
+    except RuntimeError:
+        pytest.skip("liblz4 not available")
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    from hbkit.crypto import ARGON2_ALG, ARGON2_MEMLIMIT, ARGON2_OPSLIMIT, ArchiveCrypto
+
+    pw, unikey = "pw", "unikey"
+    seed = nb.crypto_pwhash_alg(32, pw.encode(), hashlib.md5(unikey.encode()).digest(),
+                                ARGON2_OPSLIMIT, ARGON2_MEMLIMIT, ARGON2_ALG)
+    pub, _ = nb.crypto_box_seed_keypair(seed)
+    keys = [(os.urandom(32), os.urandom(16)) for _ in range(3)]
+
+    arc = object.__new__(hbk.Archive)
+    arc.crypto = ArchiveCrypto(pw, unikey, pub, [(nb.crypto_box_seal(k, pub),
+                                                  nb.crypto_box_seal(iv, pub)) for k, iv in keys])
+    arc._brec, arc._bkey, buckets, plain = {}, {}, {}, []
+    lib.LZ4_compress_default.argtypes = [ctypes.c_char_p, ctypes.c_char_p,
+                                         ctypes.c_int, ctypes.c_int]
+    for bid, (key, iv) in enumerate([*keys, (os.urandom(32), os.urandom(16))]):
+        data = f"chunk written by version {bid + 1}. ".encode() * 40
+        dst = ctypes.create_string_buffer(len(data) + 64)
+        n = lib.LZ4_compress_default(data, dst, len(data), len(dst))
+        lz = dst.raw[:n]
+        pad = padding.PKCS7(128).padder()
+        enc = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+        ct = enc.update(pad.update(lz) + pad.finalize()) + enc.finalize()
+        rec = struct.pack(">III", len(ct), 0, len(data)) + hashlib.md5(data).digest()
+        buckets[bid] = (rec + struct.pack(">I", zlib.crc32(rec)), io.BytesIO(ct))
+        arc._brec[bid] = 32
+        plain.append(data)
+    arc._bucket = buckets.__getitem__
+    return arc, plain
+
+
+def test_chunks_decode_under_the_key_of_the_version_that_wrote_them():
+    """Issue #4: vkey.db has a row per backup version, each a different AES key. Only the
+    first was ever loaded, so every chunk a later version wrote failed to decompress."""
+    arc, plain = _multi_key_archive()
+    for bid in range(3):
+        assert arc.read_chunk(bid, 0, verify=False) == plain[bid]
+    assert arc._bkey == {0: 0, 1: 1, 2: 2}
+
+
+def test_a_chunk_no_key_decodes_is_an_error_even_without_verify():
+    arc, _ = _multi_key_archive()
+    with pytest.raises(ValueError, match="no data key decodes b3@0"):
+        arc.read_chunk(3, 0, verify=False)
+
+
+def test_verify_rejects_options_it_does_not_take():
+    """`verify '*' --version 3` used to verify the newest version and say nothing."""
+    r = subprocess.run([sys.executable, "-m", "hbkit.cli", "/no/such/archive",
+                        "verify", "*", "--version", "3"], capture_output=True, text=True)
+    assert r.returncode == 2
+    assert "unknown option --version" in r.stderr
+
+
 # ------------------------------------------------- shard maths (no archive needed)
 
 def _make_shards(tmp_path, sizes, shard_size, monkeypatch):

@@ -16,8 +16,9 @@ in file-signature databases, or in DFIR tooling.
 
 Coverage caveat: this was derived from **one** archive — DSM 7, Hyper Backup 4.1.2-4039,
 unencrypted, LZ4, single version, single pool, plus a second small **encrypted** archive
-from the same DSM version. Variant handling marked [D] is implemented from disassembly but
-has never met a real archive of that kind.
+from the same DSM version. A user's 7-version encrypted archive (Hyper Backup 4.2.2,
+issue #4) later corrected §7.2. Variant handling marked [D] is implemented from
+disassembly but has never met a real archive of that kind.
 
 ---
 
@@ -254,7 +255,7 @@ Extra files in an encrypted archive:
 |---|---|
 | `Config/public.pem[.n]` | raw 32-byte X25519 **public** key (not PEM despite the name) |
 | `Config/encKeys[.n]` | header only: magic `ekhtar`, u16 version, u8 KeyWrapType |
-| `Pool/vkey.db[.n]` | `vkey(version_id, rsa_vkey, rsa_vkey_iv, checksum, ref_count)` |
+| `Pool/vkey.db[.n]` | `vkey(version_id, rsa_vkey, rsa_vkey_iv, checksum, ref_count)`, one row per backup version |
 
 Despite the `rsa_` column names, no RSA is used in this version: the blobs are libsodium
 **sealed boxes** (X25519 + XSalsa20-Poly1305). Sizes give it away — 80 = 48 overhead + 32
@@ -282,10 +283,22 @@ iv    = crypto_box_seal_open(vkey.rsa_vkey_iv, pub, priv)   # 16 bytes
 plain = LZ4( PKCS7-strip( AES-256-CBC-decrypt(ciphertext, key, iv) ) )
 ```
 
+**Every backup version has its own key and IV**: one `vkey.db` row per version, all
+unsealed with the same keypair, and each version encrypts only the chunks it writes.
+Dedup means a file from the newest version can mix chunks from all of them. On a
+7-version archive (Hyper Backup 4.2.2, issue #4), every one of 399,676 chunks decoded
+under exactly one key, the keys covered contiguous bucket ranges, and each row's
+`ref_count` equalled the number of buckets in its range. [V, from that report]
+
+No field found so far names the version that wrote a bucket, so hbkit tries the key that
+last worked for the bucket, then the others, and accepts one only when the decompressed
+output matches the chunk's MD5. A wrong key can occasionally still produce a valid LZ4
+block of the right length, so the MD5 test is required even when verification is off.
+
 The IV is fixed per backup version, so identical plaintext chunks produce identical
-ciphertext — visible directly in a bucket file, and a useful sanity check when
-implementing. The `uncomp_len` and MD5 in the bucket index still describe the *final*
-decompressed plaintext, so the existing verification works unchanged.
+ciphertext within a version — visible directly in a bucket file, and a useful sanity
+check when implementing. The `uncomp_len` and MD5 in the bucket index still describe the
+*final* decompressed plaintext, so the existing verification works unchanged.
 
 ### 7.3 Filenames [V]
 

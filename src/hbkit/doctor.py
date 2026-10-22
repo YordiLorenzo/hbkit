@@ -74,6 +74,8 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
     codec = CODECS.get(cfg.get("data_compress_type", ""), f"unknown({cfg.get('data_compress_type')})")
     r.fact("chunk codec", codec)
     r.fact("encrypted", "yes (unlocked)" if arc.crypto else "no")
+    if arc.crypto:
+        r.fact("data keys", len(arc.crypto.data_keys))
     r.fact("dedup across files", cfg.get("support_cross_file_dedup", "?"))
 
     # --- blockers -------------------------------------------------------
@@ -125,8 +127,8 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
         if len(vs) > 1:
             multi.append(f"{s}={vs}")
     if multi:
-        r.warnings.append("multiple backup versions present; the newest is used by default "
-                          "(--version selects another): " + "; ".join(multi))
+        r.warnings.append("multiple backup versions present; hbkit reads the newest: "
+                          + "; ".join(multi))
 
     # --- prove it by actually rebuilding files ---------------------------
     if not r.blockers:
@@ -141,10 +143,16 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
             except Exception as e:                           # noqa: BLE001
                 r.warnings.append(f"share {s}: cannot read file list ({e})")
                 continue
-            rows = [x for x in rows if stat.S_ISREG(x[3] or 0)]
+            # One random file from each of `sample` equal slices of the virtual_file stream,
+            # which backups append to, so the newest files are always covered. On an
+            # encrypted archive their new chunks sit under the newest version's own key.
+            rows = sorted((x for x in rows if stat.S_ISREG(x[3] or 0)), key=lambda x: x[2])
             if rows:
                 rnd = random.Random(seed or 1234)
-                picked += [(s, *rnd.choice(rows)[:3]) for _ in range(min(sample, len(rows)))]
+                k = min(sample, len(rows))
+                for i in range(k):
+                    row = rows[rnd.randrange(i * len(rows) // k, (i + 1) * len(rows) // k)]
+                    picked.append((s, *row[:3]))
 
         if not picked:
             r.warnings.append("no regular files found to sample")
@@ -168,6 +176,9 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
             el = max(time.time() - t0, 1e-6)
             r.check(f"rebuilt {len(picked)} sampled files, all chunks verified",
                     bad == 0, f"{ok} ok, {bad} failed" + (f" - {errs[0]}" if errs else ""))
+            if arc.crypto:
+                r.fact("data keys used", f"{len(set(arc._bkey.values()))} of "
+                                         f"{len(arc.crypto.data_keys)} by the sample")
             r.fact("sample throughput", f"{human(nbytes)} in {el:.1f}s "
                                         f"({nbytes/el/1e6:,.0f} MB/s, single-threaded)")
     arc.close()
