@@ -11,7 +11,6 @@ import pathlib
 import shutil
 import sqlite3
 import tempfile
-from collections import namedtuple
 from types import SimpleNamespace
 
 from hbkit import tui
@@ -50,8 +49,7 @@ def build_index(path):
     db.close()
 
 
-Usage = namedtuple("Usage", "total used free")
-shutil.disk_usage = lambda p: Usage(4 << 40, 2 << 40, int(1.6 * (1 << 40)))
+shutil.disk_usage = lambda p: SimpleNamespace(free=int(1.6 * (1 << 40)))
 
 
 class Demo(tui.HBKApp):

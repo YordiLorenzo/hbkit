@@ -20,7 +20,6 @@ GAP = 18
 
 font = instantiateVariableFont(TTFont(ROOT / "site/fonts/outfit.woff2"), {"wght": WEIGHT})
 glyphs, cmap, hmtx = font.getGlyphSet(), font.getBestCmap(), font["hmtx"]
-upm = font["head"].unitsPerEm
 ascender = font["hhea"].ascent
 scale = CAP / (font["OS/2"].sCapHeight or ascender * .7)
 
@@ -38,7 +37,6 @@ inner = re.search(r"<svg[^>]*>(.*)</svg>", icon, re.S).group(1)
 inner = re.sub(r"<title>.*?</title>", "", inner)
 
 word_w = x * scale
-word_h = ascender * scale
 width = ICON + GAP + word_w
 # centre the cap height on the icon
 top = (ICON - CAP) / 2 - (ascender - (font["OS/2"].sCapHeight or ascender * .7)) * scale
