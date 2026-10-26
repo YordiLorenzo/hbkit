@@ -590,3 +590,40 @@ def test_lazycats_lists_shards_before_any_are_opened():
                           0: "/nonexistent/file_chunk0.index"})
     assert cats.known == [0, 4]
     assert len(cats) == 0, "listing shards must not open them"
+
+
+@pytest.mark.parametrize("typed", ["~/hbkit-test-not-there/restore", "restore/here"])
+def test_tui_free_space_follows_home_and_relative_destinations(tmp_path, monkeypatch, typed):
+    """Typing ~/restore showed "invalid path" under the destination, though the restore
+    itself expanded ~ fine. A relative path did the same."""
+    import asyncio
+    import sqlite3
+    from types import SimpleNamespace
+
+    from hbkit import tui
+
+    db = tmp_path / "index.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE node(id INTEGER PRIMARY KEY, parent INTEGER, name TEXT, "
+                "isdir INTEGER, size INTEGER, nfiles INTEGER, ovf INTEGER, mtime INTEGER, "
+                "share TEXT)")
+    con.execute("INSERT INTO node VALUES (1, NULL, 'share', 1, 10, 1, NULL, 0, 'share')")
+    con.commit()
+    con.close()
+    monkeypatch.chdir(tmp_path)
+
+    class App(tui.HBKApp):
+        def on_mount(self, event):
+            event.prevent_default()            # skip the archive picker
+            self.push_screen(tui.BrowserScreen(SimpleNamespace(root="demo"), tui.Index(str(db))))
+
+    async def space_line():
+        app = App(1)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#dest", tui.Input).value = typed
+            await pilot.pause()
+            return str(app.screen.query_one("#space-info", tui.Static).render())
+
+    line = asyncio.run(space_line())
+    assert "free" in line and "invalid" not in line, line

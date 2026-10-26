@@ -526,14 +526,19 @@ class BrowserScreen(Screen):
                                    (f"{n}", "bold"), (" item(s)", "dim")))
         self.update_space()
 
+    def dest(self) -> str:
+        """The destination as typed, with ~ and relative paths resolved as a shell would."""
+        return os.path.abspath(os.path.expanduser(self.query_one("#dest", Input).value))
+
     def update_space(self):
-        probe = self.query_one("#dest", Input).value
-        while probe and not os.path.exists(probe):
-            probe = os.path.dirname(probe)
         w = self.query_one("#space-info", Static)
-        if not probe:
-            w.update(Text("invalid path", style="bold red"))
-            return
+        probe = self.dest()
+        while not os.path.exists(probe):
+            parent = os.path.dirname(probe)
+            if parent == probe:                    # a drive that isn't there
+                w.update(Text("invalid path", style="bold red"))
+                return
+            probe = parent
         free = shutil.disk_usage(probe).free
         _, need, _ = self.sel.totals()
         if need > free:
@@ -595,7 +600,7 @@ class BrowserScreen(Screen):
         if not self.sel.chosen:
             self.notify("select something first — space to tick", severity="warning")
             return
-        dest = os.path.abspath(os.path.expanduser(self.query_one("#dest", Input).value))
+        dest = self.dest()
         files = self.sel.files()
         if not files:
             self.notify("selection contains no extractable files", severity="error")
