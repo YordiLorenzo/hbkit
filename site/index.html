@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hbkit: recover files from Synology Hyper Backup archives</title>
+  <meta name="description" content="hbkit reads Synology Hyper Backup (.hbk) archives directly on macOS and Linux, with no NAS and no Synology software. Browse the backup, restore what you need, every chunk checked against the archive's own checksums.">
+  <meta name="theme-color" content="#06090C">
+  <meta name="color-scheme" content="dark">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="hbkit">
+  <meta property="og:title" content="hbkit: your backup, without the NAS">
+  <meta property="og:description" content="Recover files from Synology Hyper Backup archives on macOS and Linux. Free and open source, and every chunk is checked on the way out.">
+  <meta property="og:url" content="https://yordilorenzo.github.io/hbkit/">
+  <meta property="og:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="The hbkit logo and the line: your backup, without the NAS. Beside it, hbkit's terminal browser showing a backup's folders.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="hbkit: your backup, without the NAS">
+  <meta name="twitter:description" content="Recover files from Synology Hyper Backup archives on macOS and Linux. Free and open source, and every chunk is checked on the way out.">
+  <meta name="twitter:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <meta name="twitter:image:alt" content="The hbkit logo and the line: your backup, without the NAS. Beside it, hbkit's terminal browser showing a backup's folders.">
+
+  <link rel="icon" href="images/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="fonts/outfit.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href="./" aria-label="hbkit, home">
+        <img src="images/icon.svg" alt="" width="34" height="34">
+        hbkit
+      </a>
+      <nav aria-label="Sections">
+        <ul class="nav">
+          <li class="nav-wide"><a href="#features">Features</a></li>
+          <li><a href="#install">Install</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap">
+        <div class="hero-copy">
+          <img class="hero-icon" src="images/icon.svg" width="96" height="96" alt="">
+          <h1 id="hero-title">Your backup, without the NAS.</h1>
+          <p class="lead">hbkit reads Synology Hyper Backup archives directly, on a Mac or a Linux machine. Point it at a drive or a bucket, browse the backup, and restore what you need. Every chunk is checked against the archive's own checksums on the way out.</p>
+          <div class="actions">
+            <div class="cmd">
+              <code><span class="prompt" aria-hidden="true">$</span>brew install YordiLorenzo/tap/hbkit</code>
+              <button class="copy" type="button" data-copy="brew install YordiLorenzo/tap/hbkit" aria-label="Copy the install command">Copy</button>
+            </div>
+            <a class="btn btn-secondary" href="https://github.com/YordiLorenzo/hbkit">
+              <svg aria-hidden="true" viewBox="0 0 16 16" width="18" height="18"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+              View on GitHub
+            </a>
+          </div>
+          <p class="meta">Free and open source <span aria-hidden="true">·</span> macOS and Linux <span aria-hidden="true">·</span> No Synology software</p>
+        </div>
+
+        <figure class="shot shot-hero">
+          <img src="images/tui-1280.webp"
+               srcset="images/tui-640.webp 640w, images/tui-960.webp 960w, images/tui-1280.webp 1280w, images/tui-1600.webp 1600w, images/tui-2000.webp 2000w"
+               sizes="(min-width: 1224px) 1160px, calc(100vw - 32px)"
+               width="2916" height="1222" fetchpriority="high"
+               alt="hbkit's terminal browser: a backup's shares as a folder tree with sizes and file counts, two photo folders ticked, and a panel with the selection, the destination's free space and a Start recovery button">
+        </figure>
+
+        <div class="sources">
+          <p>Reads archives on</p>
+          <ul class="source-list">
+            <li>External and USB drives</li>
+            <li>Mounted NAS shares</li>
+            <li>S3-compatible buckets</li>
+            <li>Cloudflare R2</li>
+            <li>Backblaze B2</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section intro" id="features" aria-labelledby="features-title">
+      <div class="wrap narrow">
+        <h2 id="features-title">Made for the day the NAS is gone</h2>
+        <p class="lead">Synology's Hyper Backup Explorer is a desktop app with no command line, it runs only on x86 under Linux, and it struggles with large archives. When the NAS has died and the backup is all you have left, you want something you can point at a drive, script and trust.</p>
+      </div>
+    </section>
+
+    <section class="section feature" aria-labelledby="trust-title">
+      <div class="wrap">
+        <div class="feature-head">
+          <p class="eyebrow">Safe by design</p>
+          <h3 id="trust-title">It won't hand you a broken file</h3>
+        </div>
+        <ul class="cards cards-4">
+          <li class="card">
+            <h4>Checked on the way out</h4>
+            <p>Every chunk is checked against the MD5 and CRC32 stored in the archive. The worst case is a loud failure that names the file, never a file that is quietly wrong.</p>
+          </li>
+          <li class="card">
+            <h4>Read-only</h4>
+            <p>hbkit never writes to the archive. Point it at the original drive, a copy, or a bucket.</p>
+          </li>
+          <li class="card">
+            <h4>Resumable and crash-safe</h4>
+            <p>Each file is written to a <code>.part</code> file and renamed when it is complete, so a stopped run never leaves a cut-off file behind. Run the same command again and finished files are skipped.</p>
+          </li>
+          <li class="card">
+            <h4>The original layout</h4>
+            <p>Files come back under their share and original path, with their original modification times. Synology's thumbnail and metadata folders stay out of your restore.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section feature" aria-labelledby="doctor-title">
+      <div class="wrap split">
+        <div class="split-copy">
+          <p class="eyebrow">Before you restore</p>
+          <h3 id="doctor-title">Find out first if it will work</h3>
+          <p><code>hbk doctor</code> reads the archive's layout, then proves it can be recovered: it rebuilds a sample of real files, from the oldest to the newest, and checks every chunk.</p>
+          <ul class="ticks">
+            <li>A wrong password is rejected before any data is read.</li>
+            <li>A layout hbkit doesn't know is refused, never guessed.</li>
+            <li>On an encrypted archive, it shows how many backup versions' keys it found and used.</li>
+          </ul>
+        </div>
+        <figure class="term-figure">
+          <div class="term">
+            <div class="term-bar"><i></i><i></i><i></i><span>hbk doctor</span></div>
+<pre><span class="p">$ </span><span class="cmd-line">hbk /Volumes/Backup doctor</span>
+<span class="k">            archive :</span> /Volumes/Backup/nas.hbk
+<span class="k">               task :</span> Nightly backup
+<span class="k">        chunk codec :</span> lz4
+<span class="k">          encrypted :</span> yes (unlocked)
+<span class="k">          data keys :</span> 7
+<span class="k"> chunk_index record :</span> 29 B (v3)
+<span class="k">bucket index record :</span> 32 B (md5+crc32)
+<span class="k">             shares :</span> documents, homes, music, photo, video
+<span class="k">     data keys used :</span> 5 of 7 by the sample
+
+  <span class="ok">PASS</span>  password unlocks the archive
+  <span class="ok">PASS</span>  virtual_file layout known  (56 B)
+  <span class="ok">PASS</span>  chunk_index layout known  (29 B)
+  <span class="ok">PASS</span>  bucket layout known  (32 B)
+  <span class="ok">PASS</span>  rebuilt 50 sampled files, all chunks verified
+
+  <span class="v">VERDICT: recoverable.</span> Sampled files rebuilt byte-exact and checksum-verified.</pre>
+          </div>
+          <figcaption class="term-caption">Example output for an encrypted archive with seven backup versions, shortened.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section feature" aria-labelledby="browse-title">
+      <div class="wrap split reverse">
+        <div class="split-copy">
+          <p class="eyebrow">Browse</p>
+          <h3 id="browse-title">Tick folders, then restore</h3>
+          <p><code>hbk-tui</code> shows the whole backup as a tree, with each folder's size and file count. Tick what you want, choose where it goes, and press <strong>r</strong>.</p>
+          <ul class="ticks">
+            <li>It warns you before you start if the selection won't fit.</li>
+            <li>While it runs: live throughput, time left, the files it just finished, and a log of any failures.</li>
+            <li>The file list is cached per archive. After the first open, a backup of 1.1 million files opens instantly.</li>
+          </ul>
+        </div>
+        <figure class="shot shot-panel">
+          <img src="images/tui-panel-856.webp"
+               srcset="images/tui-panel-428.webp 428w, images/tui-panel-856.webp 856w"
+               sizes="(min-width: 960px) 428px, min(428px, calc(100vw - 32px))"
+               width="856" height="996" loading="lazy" decoding="async"
+               alt="The side panel: 52,386 files and 244.4 GB selected in 2 items, the destination with 1.6 TB free, a Start recovery button, and the archive's totals">
+          <figcaption>The selection panel. Too big for the destination? It says so before you start.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section feature" aria-labelledby="cloud-title">
+      <div class="wrap split">
+        <div class="split-copy">
+          <p class="eyebrow">Cloud copies</p>
+          <h3 id="cloud-title">Restore straight from a bucket</h3>
+          <p>Mount the bucket with rclone and point hbkit at it. <code>hbk mount</code> sets the rclone options that matter and loads the folder listings up front, so the wait happens once, at the start. Your cloud keys stay in rclone's own config.</p>
+          <ul class="ticks">
+            <li>Browsing and search use a local index, with no network at all.</li>
+            <li>Checksums cost nothing here: decompressing and checking took 0.7% of the time.</li>
+            <li>A copy on a local disk is still much faster. Try one small folder first.</li>
+          </ul>
+        </div>
+        <div class="stats">
+          <h4>A 3 TB archive in Cloudflare R2</h4>
+          <p>Default rclone settings, then with <code>hbk mount</code>.</p>
+          <ul class="stat-rows">
+            <li>
+              <span class="stat-label">Mount and load the folder listings</span>
+              <span class="stat-before">about 12 minutes before</span>
+              <span class="stat-after">16 s</span>
+            </li>
+            <li>
+              <span class="stat-label">Open the archive</span>
+              <span class="stat-before">9 min 21 s before</span>
+              <span class="stat-after">1.8 s</span>
+            </li>
+            <li>
+              <span class="stat-label">Restore a 10 KB file</span>
+              <span class="stat-before">584 s before</span>
+              <span class="stat-after">11 s</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section feature" aria-labelledby="script-title">
+      <div class="wrap split reverse">
+        <div class="split-copy">
+          <p class="eyebrow">Command line</p>
+          <h3 id="script-title">Or script the whole thing</h3>
+          <p>Every command takes a pattern over the archive's own paths, which start with the share name. Output keeps the folder tree and the original dates.</p>
+          <ul class="ticks">
+            <li><code>-j</code> sets how many worker processes run at once. Use 16 on a network mount.</li>
+            <li><code>--strict</code> re-checks the recorded checksums when resuming, so a file of the right size with the wrong content is caught.</li>
+            <li>Plain output and a non-zero exit code on any failure, for cron jobs and scripts.</li>
+          </ul>
+        </div>
+        <div class="term">
+          <div class="term-bar"><i></i><i></i><i></i><span>zsh</span></div>
+<pre><span class="cm"># restore a folder, keeping the tree and dates</span>
+<span class="p">$ </span><span class="cmd-line">hbk /Volumes/Backup get "/photo/2023/*" ~/restore</span>
+
+<span class="cm"># check everything, write nothing</span>
+<span class="p">$ </span><span class="cmd-line">hbk /Volumes/Backup verify "*" -j 16</span>
+
+<span class="cm"># find a file by name</span>
+<span class="p">$ </span><span class="cmd-line">hbk /Volumes/Backup list invoice</span>
+
+<span class="cm"># encrypted? it asks for the password, or set HBK_PASSWORD</span>
+<span class="p">$ </span><span class="cmd-line">hbk /Volumes/Backup info</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="works-with" aria-labelledby="works-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="works-title">What it works with</h2>
+          <p class="lead">hbkit has been checked byte for byte against a handful of real archives, and <code>doctor</code> exists so you can check yours in seconds, not halfway through a restore.</p>
+        </div>
+        <div class="cards cards-4 support">
+          <div class="card">
+            <h3>Archives</h3>
+            <ul class="dots">
+              <li>Hyper Backup on DSM 7, seen working with versions 4.1.2 and 4.2.2</li>
+              <li>LZ4-compressed chunks</li>
+              <li>Client-side encryption, unlocked with the password</li>
+              <li>Many backup versions; hbkit reads the newest</li>
+            </ul>
+            <p class="note"><strong>Not yet:</strong> older RSA-encrypted archives, unlocking with the key file, and files stored by whole-file dedup (1 in 501,278 in the reference archive).</p>
+          </div>
+          <div class="card">
+            <h3>Where it lives</h3>
+            <ul class="dots">
+              <li>Any folder your computer can open: an internal or USB disk, or a mounted NAS share</li>
+              <li>S3-compatible buckets such as Amazon S3, Cloudflare R2 and Backblaze B2, through an rclone mount</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Computers</h3>
+            <ul class="dots">
+              <li>macOS, Apple Silicon and Intel</li>
+              <li>Linux</li>
+              <li>Python 3.10 or newer, and liblz4</li>
+            </ul>
+            <p class="note"><strong>Not tested:</strong> restoring on Windows. The package installs and runs there.</p>
+          </div>
+          <div class="card">
+            <h3>Ways to install</h3>
+            <ul class="dots">
+              <li>Homebrew, on macOS and Linux</li>
+              <li>pip or pipx, from PyPI</li>
+              <li>An Arch PKGBUILD and a Nix package, in the repository</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="install" aria-labelledby="install-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="install-title">Install</h2>
+          <p class="lead">One command to install, one to check the archive, one to restore.</p>
+        </div>
+        <ol class="steps">
+          <li class="step">
+            <h3>Install hbkit</h3>
+<pre><span class="p">$ </span>brew install YordiLorenzo/tap/hbkit</pre>
+            <p class="small">Homebrew installs liblz4 with it. With pip or pipx, run <code>pip install hbkit</code> and install liblz4 yourself: <code>brew install lz4</code>, <code>apt install liblz4-1</code> or <code>pacman -S lz4</code>.</p>
+          </li>
+          <li class="step">
+            <h3>Check the archive</h3>
+<pre><span class="p">$ </span>hbk /Volumes/Backup doctor</pre>
+            <p class="small">Give it the <code>.hbk</code> folder, or any drive or folder that holds one. For an encrypted archive, add <code>-p</code> and the password, or set <code>HBK_PASSWORD</code>.</p>
+          </li>
+          <li class="step">
+            <h3>Restore</h3>
+<pre><span class="p">$ </span>hbk-tui /Volumes/Backup</pre>
+            <p class="small">Or from the command line:</p>
+<pre><span class="p">$ </span>hbk /Volumes/Backup get "/photo/*" ~/restore</pre>
+            <p class="small">If it stops, run the same command again to carry on.</p>
+          </li>
+        </ol>
+        <p class="after-steps">Every command, network mounts and performance tuning are in the <a class="text-link" href="https://github.com/YordiLorenzo/hbkit#readme">README</a>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="wrap faq-layout">
+        <div>
+          <h2 id="faq-title">Questions</h2>
+          <p class="lead">Anything else? The <a class="text-link" href="https://github.com/YordiLorenzo/hbkit#readme">README</a> goes deeper, and you can always <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues">open an issue</a>.</p>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Do I need a Synology NAS or account?</summary>
+            <p>No. hbkit reads the archive's files directly. It doesn't need a NAS, Synology software, a Synology account or an internet connection.</p>
+          </details>
+          <details>
+            <summary>Can it damage my backup?</summary>
+            <p>No. hbkit opens the archive read-only and never writes to it. Restored files go only to the destination you choose.</p>
+          </details>
+          <details>
+            <summary>My backup is encrypted. Will it work?</summary>
+            <p>Yes, with the password. hbkit checks the password against the public key stored in the archive, so a wrong one is rejected straight away. Older archives encrypted with RSA, and unlocking with the exported key file, aren't supported yet.</p>
+          </details>
+          <details>
+            <summary>Can I restore straight from S3, R2 or B2?</summary>
+            <p>Yes, through an rclone mount, and <code>hbk mount</code> sets it up for you. A restore reads many small pieces, each one a trip over the network, so it is much slower than a local disk. If you can, copy the archive down first.</p>
+          </details>
+          <details>
+            <summary>How fast is it?</summary>
+            <p>Usually as fast as the disk allows. From a USB hard disk that reads 92 MB/s at best, a restore ran at 58 MB/s. From Cloudflare R2 it reached about 9.5 MB/s with 16 workers.</p>
+          </details>
+          <details>
+            <summary>Can it restore an older backup version?</summary>
+            <p>Not yet. hbkit always reads the newest version in the archive.</p>
+          </details>
+          <details>
+            <summary>What if doctor fails on my archive?</summary>
+            <p>Please <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/new">open an issue</a> and paste the output. The last two fixes both came from people whose archive wouldn't fully restore: one had gaps in its index files, the other was an encrypted archive with seven backup versions.</p>
+          </details>
+          <details>
+            <summary>Is hbkit made by Synology?</summary>
+            <p>No. It is an independent open source project. The format was worked out from real archives, and is written up in <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">FORMAT.md</a> for anyone who wants to build on it.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section closing" aria-labelledby="closing-title">
+      <div class="wrap narrow center">
+        <img class="closing-icon" src="images/icon.svg" width="120" height="120" loading="lazy" decoding="async" alt="">
+        <h2 id="closing-title">Get your files back</h2>
+        <p class="lead">Free and open source, for macOS and Linux. Run <code>doctor</code> first, then restore what you need.</p>
+        <div class="actions">
+          <div class="cmd">
+            <code><span class="prompt" aria-hidden="true">$</span>brew install YordiLorenzo/tap/hbkit</code>
+            <button class="copy" type="button" data-copy="brew install YordiLorenzo/tap/hbkit" aria-label="Copy the install command">Copy</button>
+          </div>
+          <a class="btn btn-secondary" href="https://github.com/YordiLorenzo/hbkit/releases/latest">Release notes</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="report-title">
+      <div class="wrap">
+        <div class="report-card">
+          <div>
+            <h2 id="report-title">Got an archive it can't read?</h2>
+            <p>Every Synology setup is a little different, and each new archive teaches hbkit something. If <code>doctor</code> doesn't pass on yours, the output is enough to start from.</p>
+          </div>
+          <div class="report-actions">
+            <a class="btn btn-secondary" href="https://github.com/YordiLorenzo/hbkit/issues/new">Open an issue</a>
+            <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">How the format works</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <a class="brand" href="./" aria-label="hbkit, home">
+          <img src="images/icon.svg" alt="" width="34" height="34" loading="lazy">
+          hbkit
+        </a>
+        <ul class="footer-links">
+          <li><a href="https://github.com/YordiLorenzo/hbkit">Source on GitHub</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/releases">Releases</a></li>
+          <li><a href="https://pypi.org/project/hbkit/">PyPI</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">Format notes</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/issues">Report a problem</a></li>
+        </ul>
+      </div>
+      <p>hbkit is free and open source under the <a href="https://github.com/YordiLorenzo/hbkit/blob/main/LICENSE">MIT License</a>.</p>
+      <p>hbkit is not affiliated with or endorsed by Synology. Synology and Hyper Backup are trademarks of Synology Inc., named here only to say what hbkit reads. The screenshots show hbkit's real interface over a demo archive.</p>
+      <p>Headings are set in Outfit, under the <a href="fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+  </footer>
+
+  <script>
+    // Copy the install command. The button says so for two seconds, and screen readers hear it.
+    document.querySelectorAll(".copy").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        navigator.clipboard.writeText(btn.dataset.copy).then(function () {
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = "Copy"; }, 2000);
+        });
+      });
+      btn.setAttribute("aria-live", "polite");
+    });
+  </script>
+</body>
+</html>

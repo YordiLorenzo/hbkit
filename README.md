@@ -10,6 +10,8 @@ Point it at a backup on a local disk, an external drive, or a network mount, bro
 a tree, and pull out what you want. Works headless on Linux and macOS, including Apple Silicon, where Synology's
 own Hyper Backup Explorer is awkward or unavailable.
 
+Website: **[yordilorenzo.github.io/hbkit](https://yordilorenzo.github.io/hbkit/)**
+
 ```sh
 brew install YordiLorenzo/tap/hbkit     # macOS / Linux, pulls in liblz4 for you
 
