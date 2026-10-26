@@ -1,0 +1,17 @@
+<!doctype html>
+<!-- docs/images/banner.png, 1600x500. Render from the repository root (see contrib/art/README.md). -->
+<html><head><meta charset="utf-8"><style>
+@font-face { font-family: Outfit; src: url("../../site/fonts/outfit.woff2") format("woff2"); font-weight: 100 900; }
+html, body { margin: 0; }
+body { position: relative; width: 1600px; height: 500px; overflow: hidden; background: #06090c; font-family: Outfit, sans-serif; }
+.tui { position: absolute; right: -170px; top: 70px; width: 860px; border-radius: 14px; opacity: .3; filter: blur(2.5px); }
+.fade { position: absolute; inset: 0; background: linear-gradient(90deg, #06090c 32%, rgb(6 9 12 / .82) 58%, rgb(6 9 12 / .35)); }
+.glow { position: absolute; inset: 0; background: radial-gradient(38% 70% at 50% 42%, rgb(18 48 58 / .85), rgb(11 23 28 / .25) 60%, transparent 85%); }
+.centre { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 30px; }
+.logo { height: 132px; }
+p { margin: 0; color: rgb(236 243 241 / .86); font-size: 44px; font-weight: 400; }
+</style></head><body>
+<img class="tui" src="../../docs/images/tui.png" alt="">
+<div class="fade"></div><div class="glow"></div>
+<div class="centre"><img class="logo" src="../../docs/images/logo.svg" alt=""><p>Your backup, without the NAS.</p></div>
+</body></html>

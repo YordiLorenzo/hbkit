@@ -1,4 +1,6 @@
-# hbkit
+<p align="center">
+  <img src="https://raw.githubusercontent.com/YordiLorenzo/hbkit/main/docs/images/banner.png" alt="hbkit: your backup, without the NAS" width="100%">
+</p>
 
 [![PyPI](https://img.shields.io/pypi/v/hbkit)](https://pypi.org/project/hbkit/)
 [![CI](https://github.com/YordiLorenzo/hbkit/actions/workflows/ci.yml/badge.svg)](https://github.com/YordiLorenzo/hbkit/actions/workflows/ci.yml)
@@ -50,22 +52,7 @@ case is a loud failure naming the file.
 
 ## The TUI
 
-```
-⭘                          Hyper Backup Recovery                          17:11:17
- ┌──────────────────────────────────────────────────────────────┐ │
- │  search filename…  (/)                                       │ │ Selection
- └──────────────────────────────────────────────────────────────┘ │ 197,607 files
- ▼ ◪ 📁 NAS Volume 1                       4.4T   499,745         │ 625.0G  in 1 item(s)
- ├─ ▶ ☐ 📁 Archive 2022                      24.2G       358      │
- ├─ ▶ ☐ 📁 Backups                           23.5G    63,693      │ Destination
- ├─ ▶ ☐ 📁 Video Projects                     1.9T    64,473      │ ┌──────────────────────────┐
- ├─ ▶ ☐ 📁 Media Library                      1.3T    66,629      │ │ ~/restore                │
- ├─ ▼ ☑ 📁 Photo Libraries                  625.0G   197,607      │ └──────────────────────────┘
- │  ├─ ▶ ☑ 📁 Photos Library - Laptop…        28.8G    76,844     │ ⚠ needs 625.0G, only 70.3G free
- │  ├─ ▶ ☑ 📁 Photos Library - Old Backup…    19.8G    15,505     │
-                                                                  │      Start recovery
- a All  n Clear  d Destination  r Recover  / Search  q Quit       │
-```
+![hbkit's terminal browser: a backup's shares as a folder tree with sizes and file counts, two photo folders ticked, and a panel with the selection, the destination's free space and a Start recovery button](https://raw.githubusercontent.com/YordiLorenzo/hbkit/main/docs/images/tui.png)
 
 `space` tick · `a` all · `n` clear · `/` search · `d` destination · `r` recover ·
 `ctrl+q` quit (plain `q` types into whichever field has focus, so quit is ctrl+q).
