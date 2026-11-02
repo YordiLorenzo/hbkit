@@ -147,8 +147,9 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
                                      " - newest" if arc.allow_incomplete else
                                      " - newest complete"))
     if len(versions) > 1 and arc.version is None:
-        r.warnings.append(f"{len(versions)} backup versions present; checking the newest "
-                          "complete one - pick another with --version (see `versions`)")
+        which = "newest" if arc.allow_incomplete else "newest complete"
+        r.warnings.append(f"{len(versions)} backup versions present; checking the {which} "
+                          "one - pick another with --version (see `versions`)")
     for s in shares:
         try:
             arc.share_version(s)

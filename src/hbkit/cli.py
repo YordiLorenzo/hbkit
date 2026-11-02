@@ -68,6 +68,11 @@ EXIT_PASSWORD = 3      # encrypted archive: no password given, or the wrong one
 EXIT_VERSION = 4       # the requested backup version does not exist/is not complete
 EXIT_NO_MATCH = 5      # the glob or pattern matched no file
 EXIT_NO_SPACE = 6      # the destination does not have room for the selection
+EXIT_INTERRUPTED = 130 # Ctrl-C / SIGINT: whatever was running stopped part-way
+
+# Most positional arguments each archive command takes, counting <archive> and the
+# command (too few is reported by the command itself, with the usage text).
+MAX_ARGS = {"list": 3, "get": 4, "verify": 3, "info": 2, "versions": 2, "tui": 2}
 
 
 class UsageError(Exception):
@@ -207,6 +212,7 @@ def run(arc, sel, dest, jobs, check, password=None, strict=False):
         r.poll()
     except KeyboardInterrupt:
         r.cancel()
+        r.cancelled = True
         print("\ncancelled", file=sys.stderr)
     finally:
         r.cleanup()
@@ -222,6 +228,8 @@ def run(arc, sel, dest, jobs, check, password=None, strict=False):
         print(f"  FAIL {p}: {m}")
     if len(r.errors) > 20:
         print(f"  ... and {len(r.errors)-20} more")
+    if getattr(r, "cancelled", False):
+        return EXIT_INTERRUPTED            # a partial restore must never look like success
     return EXIT_FAILED if r.failed else EXIT_OK
 
 
@@ -288,13 +296,15 @@ def cmd_versions(archive, porcelain: bool) -> int:
 
 def main() -> int:
     a = sys.argv[1:]
-    if a and a[0] in ("--version", "-V"):
+    # alone, --version is hbkit's own version; with arguments it selects a backup version
+    if a in (["--version"], ["-V"]):
         from . import __version__
         print(f"hbkit {__version__}")
         return 0
     try:
         jobs = 8
         j = pop_option(a, "-j")
+        jobs_given = j is not None
         if j is not None:
             try:
                 jobs = int(j)
@@ -363,6 +373,27 @@ def main() -> int:
 
     archive, cmd = a[0], a[1]
 
+    # Refuse what a command would silently ignore: a stray word (an unquoted path with a
+    # space in it) or an option that has no effect there.
+    if cmd in MAX_ARGS:
+        # globs and patterns are archive paths or words, so a leading "-" is a stray option
+        hi = MAX_ARGS[cmd]
+        if any(x.startswith("-") for x in a[2:]):
+            print(f"unknown option {next(x for x in a[2:] if x.startswith('-'))}",
+                  file=sys.stderr)
+            return EXIT_USAGE
+        if len(a) > hi:
+            print(f"{cmd}: unexpected argument {a[hi]!r} (quote paths with spaces)",
+                  file=sys.stderr)
+            return EXIT_USAGE
+    for given, name, cmds in ((strict, "--strict", ("get",)),
+                              (jobs_given, "-j", ("get", "verify", "tui")),
+                              (allow_incomplete, "--allow-incomplete",
+                               ("list", "get", "verify", "info", "doctor", "tui"))):
+        if given and cmd not in cmds:
+            print(f"{name} does not apply to `{cmd}`", file=sys.stderr)
+            return EXIT_USAGE
+
     if cmd == "versions":
         if version is not None:
             print("versions lists every version; it takes no --version/--before",
@@ -410,28 +441,32 @@ def main() -> int:
         print(f"codec     : {CODECS.get(cfg.get('data_compress_type',''), '?')}")
         print(f"encrypted : {'yes (unlocked)' if arc.crypto else arc.is_encrypted()}")
         print(f"sources   : {cfg.get('backup_folders','?')}")
+        problem = None
+        try:
+            arc.selected_version()
+        except hbk.VersionNotFound as e:
+            problem = e                  # still show what there is, to choose from
         for s in arc.shares():
-            try:
-                reading = f"   reading={arc.share_version(s)}"
-            except FileNotFoundError:
-                reading = "   (not in the selected version)"
+            reading = ""
+            if problem is None:
+                try:
+                    reading = f"   reading={arc.share_version(s)}"
+                except FileNotFoundError:
+                    reading = "   (not in the selected version)"
             print(f"  share {s}   versions={arc.share_versions(s)}{reading}")
         try:
             vs = arc.versions()
         except hbk.UnsupportedArchive as e:
             print(f"versions  : unknown ({e})")
-            return 0
-        print(f"versions  : {len(vs)}   {describe_version(arc)}")
+            return EXIT_OK
+        print(f"versions  : {len(vs)}"
+              + ("" if problem else f"   {describe_version(arc)}"))
         for v in vs:
             print(f"  {v.id:>5}  {when(v.timestamp)}  {v.status or '?'}")
-        return 0
-
-    if cmd in ("get", "verify"):
-        # globs match paths, which start with "/", so a leading "-" is always a stray option
-        opts = [x for x in a[2:] if x.startswith("-")]
-        if opts:
-            print(f"unknown option {opts[0]}", file=sys.stderr)
-            return EXIT_USAGE
+        if problem:
+            print(problem, file=sys.stderr)
+            return EXIT_VERSION
+        return EXIT_OK
 
     if cmd not in ("list", "get", "verify"):
         print(__doc__)
@@ -507,6 +542,16 @@ def main_entry() -> int:
         print(f"{e}", file=sys.stderr)
         return EXIT_PASSWORD
     except FileNotFoundError as e:
+        print(f"{e}", file=sys.stderr)
+        return 2
+    except BrokenPipeError:
+        # `hbk ... list | head`: the reader has what it wanted
+        try:
+            sys.stdout = open(os.devnull, "w")
+        except OSError:
+            pass
+        return EXIT_OK
+    except OSError as e:
         print(f"{e}", file=sys.stderr)
         return 2
     except Exception:                                        # noqa: BLE001

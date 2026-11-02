@@ -1205,3 +1205,150 @@ def test_tui_refuses_an_archive_with_no_complete_version(tmp_path, monkeypatch):
 
     arc, text = asyncio.run(probe())
     assert arc is None and "no complete backup version" in text
+
+
+# ------------------------------------------------------------- review round 2
+
+def test_the_default_version_is_fixed_for_the_life_of_an_archive_object(tmp_path, monkeypatch):
+    """A backup finishing while hbkit runs must not switch versions half-way through
+    building an index (one share from the old version, one from the new)."""
+    import sqlite3
+
+    from hbkit import index as hbk_index
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    import synth
+    pytest.importorskip("nacl.bindings")
+    root = synth.build(str(tmp_path / "arc"), [
+        synth.V({"d/a.txt": [b"v1" * 9]}, T0, shares=["A", "B"]),
+        synth.V({"d/a.txt": [b"v2" * 9]}, T0 + DAY, "Backingup", shares=["A", "B"]),
+    ])
+    arc = hbk.Archive(root)
+    assert arc.selected_version() == 1
+    db = sqlite3.connect(os.path.join(root, "Config", "version_info.db"))
+    db.execute("UPDATE version_info SET status='Complete' WHERE id=2")
+    db.commit()
+    db.close()
+    assert arc.selected_version() == 1
+    p = hbk_index.build(arc)
+    assert "-v1-" in os.path.basename(p) and p == hbk_index.cache_path(arc)
+    assert hbk.Archive(root).selected_version() == 2       # a new run sees the new one
+
+
+def test_a_leading_version_option_selects_a_backup_not_the_hbkit_version(tmp_path):
+    root, bodies = _three_versions(tmp_path)
+    r = _hbk(tmp_path, "--version", "1", root, "get", GLOB, tmp_path / "out")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[0]
+    for flag in ("--version", "-V"):
+        r = _hbk(tmp_path, flag)
+        assert r.returncode == 0 and r.stdout.startswith("hbkit ")
+
+
+def test_an_interrupted_restore_exits_130(tmp_path, monkeypatch):
+    from hbkit import cli
+    from hbkit import runner as hbk_runner
+
+    class Interrupted(hbk_runner.Runner):
+        def start(self):
+            self._live = 1
+
+        def poll(self, limit=8000):
+            raise KeyboardInterrupt
+
+        def cancel(self):
+            self.cancelled = True
+
+    monkeypatch.setattr(hbk_runner, "Runner", Interrupted)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    rows = [("/s/a", 64, 10, 0)]
+    arc = type("A", (), {"root": str(tmp_path)})()
+    assert cli.run(arc, rows, str(tmp_path / "out"), 1, False) == 130
+
+
+def test_exporting_an_index_elsewhere_keeps_the_cached_one(tmp_path, monkeypatch):
+    from hbkit import index as hbk_index
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    root, _ = _three_versions(tmp_path)
+    cached = hbk_index.build(hbk.Archive(root, version=2))
+    hbk_index.build(hbk.Archive(root, version=2), out=str(tmp_path / "export.db"))
+    assert os.path.exists(cached)
+
+
+def test_indexes_of_versions_no_longer_in_the_archive_are_pruned(tmp_path, monkeypatch):
+    """Retention deletes old versions; their indexes must not pile up forever."""
+    import sqlite3
+
+    from hbkit import index as hbk_index
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    root, _ = _three_versions(tmp_path)
+    gone = hbk_index.build(hbk.Archive(root, version=1))
+    kept = hbk_index.build(hbk.Archive(root, version=2))
+    os.remove(os.path.join(root, "Config", "@Share", "db_staging", "1.db"))
+    db = sqlite3.connect(os.path.join(root, "Config", "version_info.db"))
+    db.execute("DELETE FROM version_info WHERE id=1")
+    db.commit()
+    db.close()
+    hbk_index.build(hbk.Archive(root, version=3))
+    assert not os.path.exists(gone) and os.path.exists(kept)
+
+
+def test_a_version_without_file_lists_is_refused_and_skipped_by_dates(tmp_path, utc):
+    root, _ = _three_versions(tmp_path)
+    os.remove(os.path.join(root, "Config", "@Share", "db_staging", "2.db"))
+    arc = hbk.Archive(root)
+    with pytest.raises(hbk.VersionNotFound, match="no file lists"):
+        arc.resolve_version("2")
+    assert arc.resolve_version("@2025-10-10") == 1
+
+
+@pytest.mark.parametrize("args", [
+    ["get", GLOB, "OUT", "extra"],
+    ["verify", GLOB, "extra"],
+    ["list", "a", "b"],
+    ["info", "x"],
+    ["versions", "--allow-incomplete"],
+    ["list", "--strict"],
+    ["list", "-j", "4"],
+])
+def test_arguments_a_command_would_ignore_are_refused(tmp_path, args):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, *[str(tmp_path / "out") if x == "OUT" else x for x in args])
+    assert r.returncode == 2, r.stdout + r.stderr
+
+
+def test_info_lists_versions_even_when_none_is_complete(tmp_path):
+    root, _ = _three_versions(tmp_path, statuses=("Backingup",) * 3)
+    r = _hbk(tmp_path, root, "info")
+    assert r.returncode == 4
+    assert r.stdout.count("Backingup") == 3, r.stdout
+
+
+def test_doctor_points_at_allow_incomplete(tmp_path):
+    from hbkit import doctor
+    root, _ = _three_versions(tmp_path, statuses=("Backingup",) * 3)
+    out = doctor.render(doctor.diagnose(root))
+    assert "--allow-incomplete" in out
+    root2, _ = _three_versions(tmp_path / "b", statuses=("Complete", "Complete", "Backingup"))
+    r = doctor.diagnose(root2, allow_incomplete=True)
+    assert not any("newest complete" in w for w in r.warnings), r.warnings
+
+
+def test_a_bad_selector_is_reported_before_asking_for_the_password(tmp_path):
+    root, _ = _three_versions(tmp_path, encrypted=True)
+    assert _hbk(tmp_path, root, "list", "--version", "abc").returncode == 2
+    assert _hbk(tmp_path, root, "list", "--version", "9").returncode == 4
+
+
+def test_unusual_digits_are_a_usage_error(tmp_path):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "list", "--version", "²")
+    assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+
+
+def test_a_closed_pipe_is_not_an_internal_error(tmp_path):
+    root, _ = _three_versions(tmp_path)
+    env = {**os.environ, "HBK_CACHE": str(tmp_path / "cache")}
+    p = subprocess.run(f'"{sys.executable}" -m hbkit.cli "{root}" list / | head -c 1 >/dev/null; '
+                       'exit ${PIPESTATUS[0]}', shell=True, executable="/bin/bash",
+                       capture_output=True, text=True, env=env)
+    assert "Traceback" not in p.stderr and "please report" not in p.stderr, p.stderr

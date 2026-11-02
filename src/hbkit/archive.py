@@ -348,6 +348,15 @@ class Archive:
         self._brec: dict[int, int] = {}
         self._bkey: dict[int, int] = {}      # bucket id -> index into crypto.data_keys
         self._password = None
+        # The version list is stored in the clear: check the selector before unlocking,
+        # so a typo or a missing version is reported without asking for a password.
+        # an encrypted archive opened without its password: metadata only, never data
+        self._locked = not unlock and self.is_encrypted()
+        self.allow_incomplete = allow_incomplete
+        self.version: int | None = None          # set only when explicitly chosen
+        self._selected: tuple[int | None] | None = None   # memo of selected_version()
+        if version is not None:
+            self.version = self.resolve_version(version, allow_incomplete)
         if unlock and self.is_encrypted():
             if password is None:
                 raise NeedPassword(f"{self.root} is encrypted - a password is required")
@@ -361,12 +370,6 @@ class Archive:
             raise UnsupportedArchive(
                 f"chunk_index record size {self.ci.record_size}, "
                 "only 16 (v1/v2) and 29 (v3) are implemented")
-        # an encrypted archive opened without its password: metadata only, never data
-        self._locked = not unlock and self.is_encrypted()
-        self.allow_incomplete = allow_incomplete
-        self.version: int | None = None          # set only when explicitly chosen
-        if version is not None:
-            self.version = self.resolve_version(version, allow_incomplete)
 
     # -- metadata ---------------------------------------------------------
 
@@ -472,11 +475,16 @@ class Archive:
                 cutoff = parse_moment(text[1:])
             except ValueError as e:
                 raise InvalidVersionSpec(f"--version {text}: {e}") from None
-        elif text is not None and not text.isdigit():
+        elif text is not None and not (text.isascii() and text.isdigit()):
             raise InvalidVersionSpec(f"--version {text}: want a version number, "
                                      "or @YYYY-MM-DD[ HH:MM[:SS]]")
         vs = self.versions()
-        usable = [v for v in vs if allow_incomplete or v.complete is not False]
+        # A version whose file lists are all gone (rotated away while its row stayed, or
+        # never written) has nothing to read: never select it.
+        shares = self.shares()
+        present = {i for s in shares for i in self.share_versions(s)}
+        listed = [v for v in vs if not shares or v.id in present]
+        usable = [v for v in listed if allow_incomplete or v.complete is not False]
         if text is None:
             if not usable:
                 raise VersionNotFound("the archive has no complete backup version; "
@@ -496,6 +504,9 @@ class Archive:
         if found is None:
             have = ", ".join(str(v.id) for v in vs) or "none"
             raise VersionNotFound(f"version {want} does not exist (versions: {have})")
+        if shares and want not in present:
+            raise VersionNotFound(f"version {want} has no file lists in this archive "
+                                  "(removed by retention?)")
         if found.complete is False and not allow_incomplete:
             raise VersionNotFound(f"version {want} is not complete (status {found.status!r}); "
                                   "pass --allow-incomplete to read it anyway")
@@ -512,13 +523,18 @@ class Archive:
         """
         if self.version is not None:
             return self.version
-        try:
-            vs = self.versions()
-        except UnsupportedArchive:
-            return None
-        if not vs or all(v.status is None for v in vs):
-            return None
-        return self.resolve_version(None, self.allow_incomplete)
+        # Resolved once per Archive and kept: a backup that finishes while hbkit runs
+        # must not switch versions between two shares of the same index.
+        if self._selected is None:
+            try:
+                vs = self.versions()
+            except UnsupportedArchive:
+                vs = []
+            if not vs or all(v.status is None for v in vs):
+                self._selected = (None,)
+            else:
+                self._selected = (self.resolve_version(None, self.allow_incomplete),)
+        return self._selected[0]
 
     def share_version(self, share: str) -> int:
         """The version of `share` to read (see `selected_version`)."""

@@ -74,14 +74,16 @@ def cache_path(arc: hbk.Archive) -> str:
 
 
 def _prune_stale(arc: hbk.Archive, keep: str) -> None:
-    """Delete indexes of this archive and version that `keep` supersedes, and indexes
-    from before versions were tracked. Each one names its archive in its meta table, so
-    an index of another archive with the same directory name is never touched, and
-    other versions' indexes stay valid."""
+    """Delete this archive's indexes that can never be used again: older builds of the
+    same version, versions no longer in the archive (rotated away by retention), and
+    indexes from before versions were tracked. Each index names its archive in its meta
+    table, so another archive with the same directory name is never touched, and the
+    indexes of versions still present stay valid."""
     import glob
 
     ver = _version(arc)
     want = "" if ver is None else str(ver)
+    present = {str(v) for s in arc.shares() for v in arc.share_versions(s)}
     for p in glob.glob(os.path.join(glob.escape(CACHE), f"{glob.escape(_safe_name(arc))}-*.db")):
         if os.path.abspath(p) == os.path.abspath(keep):
             continue
@@ -91,7 +93,9 @@ def _prune_stale(arc: hbk.Archive, keep: str) -> None:
             db.close()
         except sqlite3.Error:
             continue
-        if meta.get("root") == arc.root and meta.get("version", want) == want:
+        mv = meta.get("version")
+        stale = mv is None or mv == want or (mv != "" and mv not in present)
+        if meta.get("root") == arc.root and stale:
             try:
                 os.remove(p)
             except OSError:
@@ -139,6 +143,7 @@ def _stage_local(src: str, cache_dir: str, progress=None, label: str = "") -> tu
 
 def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
     """Build (or rebuild) the index. `progress(stage, done, total)` is called as it goes."""
+    cached = out is None or os.path.abspath(out) == os.path.abspath(cache_path(arc))
     out = out or cache_path(arc)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     tmp = out + ".building"
@@ -258,7 +263,8 @@ def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
     db.commit()
     db.close()
     os.replace(tmp, out)
-    _prune_stale(arc, out)
+    if cached:                  # an export elsewhere leaves the cache alone
+        _prune_stale(arc, out)
     return out
 
 
