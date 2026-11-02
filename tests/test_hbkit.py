@@ -736,3 +736,27 @@ def test_version_by_date_needs_recorded_dates(tmp_path, utc):
     assert arc.resolve_version("2") == 2
     with pytest.raises(hbk.VersionNotFound, match="no version dates"):
         arc.resolve_version("@2025-10-10")
+
+
+def test_each_version_gets_its_own_index(tmp_path, monkeypatch):
+    import sqlite3
+
+    from hbkit import index as hbk_index
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    root, bodies = _three_versions(tmp_path)
+
+    def size_of_db_one(arc):
+        p = hbk_index.open_or_build(arc)
+        db = sqlite3.connect(p)
+        (n,) = db.execute("SELECT size FROM node WHERE name='db one.gbk'").fetchone()
+        db.close()
+        return p, n
+
+    p1, n1 = size_of_db_one(hbk.Archive(root, version=1))
+    p2, n2 = size_of_db_one(hbk.Archive(root, version=2))
+    pd, nd = size_of_db_one(hbk.Archive(root))
+    assert len({p1, p2, pd}) == 3, "versions must not share an index file"
+    assert (n1, n2, nd) == tuple(len(b) for b in bodies)
+    assert "-v1-" in os.path.basename(p1) and "-v2-" in os.path.basename(p2)
+    # building v2 must not have invalidated v1's index
+    assert hbk_index.is_current(hbk.Archive(root, version=1))
