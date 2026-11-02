@@ -463,7 +463,7 @@ def main() -> int:
         problem = None
         try:
             arc.selected_version()
-        except hbk.VersionNotFound as e:
+        except (hbk.VersionNotFound, hbk.UnsupportedArchive) as e:
             problem = e                  # still show what there is, to choose from
         for s in arc.shares():
             reading = ""
@@ -477,6 +477,9 @@ def main() -> int:
             vs = arc.versions()
         except hbk.UnsupportedArchive as e:
             print(f"versions  : unknown ({e})")
+            if problem:                  # carries the --allow-incomplete hint
+                print(f"unsupported archive: {problem}", file=sys.stderr)
+                return EXIT_USAGE
             return EXIT_OK
         print(f"versions  : {len(vs)}"
               + ("" if problem else f"   {describe_version(arc)}"))

@@ -1085,6 +1085,9 @@ def test_a_corrupt_version_list_refuses_the_default_unless_allowed(tmp_path):
     assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
     r = _hbk(tmp_path, root, "versions")
     assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+    r = _hbk(tmp_path, root, "info")             # still shows the shares, then the reason
+    assert r.returncode == 2 and "share " in r.stdout and "versions  : unknown" in r.stdout
+    assert "--allow-incomplete" in r.stderr, r.stderr
 
 
 def test_allow_incomplete_alone_reads_the_newest_version_even_if_unfinished(tmp_path):
