@@ -165,7 +165,11 @@ def describe_version(arc) -> str:
 
 def open_index(archive, password=None, version=None, allow_incomplete=False):
     arc = open_archive(archive, password, version, allow_incomplete)
-    if len(arc.versions()) > 1 or arc.version is not None:
+    try:
+        several = len(arc.versions()) > 1
+    except hbk.UnsupportedArchive:      # unreadable version list: the newest is still fine
+        several = True
+    if several or arc.version is not None:
         print(describe_version(arc), file=sys.stderr)
     if not hbk_index.is_current(arc):
         print("indexing archive (first use only)...", file=sys.stderr)

@@ -1001,3 +1001,23 @@ def test_real_archive_every_complete_version_verifies(tmp_path):
     for vid in sorted({done[0], done[-1]}):
         r = _hbk(tmp_path, MULTI, "verify", "/*", "--version", vid, password=MULTI_PW)
         assert r.returncode == 0, f"version {vid}: {r.stdout[-2000:]}{r.stderr[-2000:]}"
+
+
+def test_unknown_version_info_layout_blocks_only_what_needs_it(tmp_path):
+    """A version_info.db hbkit does not understand must not stop a plain restore of the
+    newest version, which never needed it - only version selection by date, and the
+    version listing itself, are refused."""
+    import sqlite3
+    root, bodies = _three_versions(tmp_path)
+    p = os.path.join(root, "Config", "version_info.db")
+    os.remove(p)
+    db = sqlite3.connect(p)
+    db.execute("CREATE TABLE version_info (vid INTEGER, started INTEGER)")
+    db.commit()
+    db.close()
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
+    r = _hbk(tmp_path, root, "versions")
+    assert r.returncode == 2 and "unknown layout" in r.stderr
+    assert _hbk(tmp_path, root, "list", "--version", "@2025-10-10").returncode == 2
