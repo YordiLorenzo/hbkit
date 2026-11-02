@@ -115,9 +115,13 @@ complete, commands exit with code 4 rather than showing an empty archive.
 
 Every share is read from the **same** version, so the default and `--version N` for the
 newest complete `N` give identical results; a share that was not part of that version is
-absent rather than silently taken from an older one. (Archives without
-`Config/version_info.db` fall back to the newest database of each share.) Whenever there
-is a choice, the version being read is printed on stderr.
+absent rather than silently taken from an older one. Archives without
+`Config/version_info.db` fall back to the newest database of each share. If the file is
+there but cannot be read (damaged, an unknown layout, or caught mid-write), hbkit cannot
+tell finished versions from unfinished ones, so it refuses (code 2) unless you pass
+`--allow-incomplete`, which then reads the newest file list of each share and says that
+completion was not checked. Whenever there is a choice, the version being read is
+printed on stderr.
 
 ```sh
 hbk "$HBK_DIR" versions                         # human-readable, marks the default
@@ -151,7 +155,9 @@ Scripts can rely on these:
 the reason in its report. Any argument or option a command would ignore — a second
 `--version`, `--strict` outside `get`, a stray word after the destination (an unquoted
 path with a space) — is refused with code 2 rather than silently dropped. `--version`
-on its own prints hbkit's version; followed by anything it selects a backup version.
+on its own prints hbkit's version; followed by anything it selects a backup version. To
+search for a name that starts with `-`, end the options with `--`:
+`hbk <archive> list -- -draft`.
 
 **Start with `doctor`.** It reports the layout it found and then *proves* the archive is
 readable by rebuilding a random sample of real files with full checksum verification:
@@ -179,9 +185,10 @@ readable by rebuilding a random sample of real files with full checksum verifica
 
 - **Resumable.** Correctly-sized files are skipped, so re-running a big job is cheap. A
   file recorded as restored from a *different* backup version is extracted again even if
-  its size matches, so restoring another version into the same directory is safe. This
-  relies on the restore record written by this release; a directory filled by an older
-  hbkit only has sizes to go on, so use a fresh directory (or `--strict`) there.
+  its size matches, so restoring another version into the same directory is safe. A file
+  whose record does not name its source — restored by hbkit before 0.5 — is extracted
+  again once too, since nothing says which version it came from. (A file with no record
+  at all, e.g. copied in by hand, is still judged by size alone; `--strict` refuses it.)
 - **Crash-safe.** Files are written to `.part` and atomically renamed, so an interrupted
   run never leaves a truncated file that a later resume would trust.
 - **Layout preserved.** Output goes to `<dest>/<share>/<original path>` with original mtimes.
