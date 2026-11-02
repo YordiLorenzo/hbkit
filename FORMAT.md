@@ -267,6 +267,10 @@ KEY)`. It is **not** a reliable completion record: on the same archive the `@App
 share's list was empty although both versions were `Complete` in `version_info`, while
 the data share listed both. hbkit does not use it. [V for the observation, ? for meaning]
 
+On that archive version 1 had `depose_time` set to the start time of version 2, while
+version 2 kept the default `-1`; the meaning is not known and hbkit ignores it, as it
+does `bad_share` and `locked`. [V for the values, ? for meaning]
+
 The same archive also showed `Pool/vkey.db` with one row per version (`version_id` 1, 2),
 and index shards with a `_dup` sibling (`0.idx_dup`) instead of a generation suffix; the
 `_dup` copies are ignored.

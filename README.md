@@ -105,10 +105,17 @@ Hyper Backup keeps many versions of the same data. `list`, `get`, `verify`, `inf
 | `--allow-incomplete` | also accept a version whose backup did not finish |
 
 Dates are in the local time of the machine running `hbk` (set `TZ` to change it); a bare
-date runs to 23:59:59, a minute to :59, a time with seconds is exact. A version counts as
-complete only if Hyper Backup recorded its status as `Complete`; an unfinished one is
-refused unless you pass `--allow-incomplete`. Whenever there is a choice, the version
-being read is printed on stderr.
+date runs to local midnight (also on daylight-saving days), a minute to :59, a time with
+seconds is exact. A version counts as complete only if Hyper Backup recorded its status
+as `Complete`; an unfinished one is refused unless you pass `--allow-incomplete`, which
+on its own reads the newest version whether or not it finished. If no version is
+complete, commands exit with code 4 rather than showing an empty archive.
+
+Every share is read from the **same** version, so the default and `--version N` for the
+newest complete `N` give identical results; a share that was not part of that version is
+absent rather than silently taken from an older one. (Archives without
+`Config/version_info.db` fall back to the newest database of each share.) Whenever there
+is a choice, the version being read is printed on stderr.
 
 ```sh
 hbk "$HBK_DIR" versions                         # human-readable, marks the default
@@ -120,7 +127,8 @@ hbk "$HBK_DIR" get  "/db_staging/firebird/*.gbk" "$TMP" --version @2026-10-15 -j
 `--porcelain` prints one line per version, oldest first, for example
 `12	2026-10-15T03:00:04+02:00	1792026004	Complete`. `versions` needs no password: the
 version list is stored unencrypted. Each version gets its own index in the cache, so
-switching between them only builds each index once.
+switching between them only builds each index once. A rebuilt index replaces the stale
+one for the same archive and version.
 
 ### Exit codes
 
@@ -130,7 +138,7 @@ Scripts can rely on these:
 |---|---|
 | 0 | success |
 | 1 | one or more files failed to extract or verify — a checksum mismatch or an unreadable chunk; the failures are listed on stdout |
-| 2 | usage error, or the archive is missing, unreadable or of an unsupported layout |
+| 2 | usage error (including a malformed `--version`), the archive is missing, unreadable or of an unsupported layout, or an unexpected internal error |
 | 3 | the archive is encrypted and no password was given, or it is wrong |
 | 4 | the requested version does not exist, is not complete, or no version matches the date |
 | 5 | the glob (`get`, `verify`) or pattern (`list`) matched no file |
@@ -166,7 +174,9 @@ readable by rebuilding a random sample of real files with full checksum verifica
 
 - **Resumable.** Correctly-sized files are skipped, so re-running a big job is cheap. A
   file recorded as restored from a *different* backup version is extracted again even if
-  its size matches, so restoring another version into the same directory is safe.
+  its size matches, so restoring another version into the same directory is safe. This
+  relies on the restore record written by this release; a directory filled by an older
+  hbkit only has sizes to go on, so use a fresh directory (or `--strict`) there.
 - **Crash-safe.** Files are written to `.part` and atomically renamed, so an interrupted
   run never leaves a truncated file that a later resume would trust.
 - **Layout preserved.** Output goes to `<dest>/<share>/<original path>` with original mtimes.
