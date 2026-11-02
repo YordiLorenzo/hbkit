@@ -2,8 +2,9 @@
 """Recover files from a Synology Hyper Backup (.hbk) archive. No Synology software needed.
 
   hbk <archive> doctor                               check whether it can be recovered
-  hbk <archive> info                                 show task, shares, codec
-  hbk <archive> list  [pattern]                      search the file index
+  hbk <archive> info                                 show task, shares, codec, versions
+  hbk <archive> versions [--porcelain]               list backup versions with dates
+  hbk <archive> list  [pattern|glob]                 search the file index
   hbk <archive> get   <glob> <dest> [-j N] [--strict] extract (keeps tree + mtimes)
   hbk <archive> verify <glob>      [-j N]            integrity-check, write nothing
   hbk <archive> tui                                  browse in the full-screen UI
@@ -15,6 +16,20 @@
   hbk --version                                      print the installed version
 
 Encrypted archives: add -p/--password, or set HBK_PASSWORD, or you'll be prompted.
+
+Backup versions: list, get, verify, info, doctor and tui read the newest COMPLETE version
+unless told otherwise:
+  --version N                 exactly version N (see `versions`)
+  --version @YYYY-MM-DD[ HH:MM[:SS]]
+                              the newest complete version that started no later than
+                              that moment, in this machine's local time; a bare date
+                              means the end of that day
+  --before 'YYYY-MM-DD HH:MM' the same as --version @...
+  --allow-incomplete          also accept a version whose backup did not finish
+
+Exit codes: 0 ok, 1 files failed to extract or verify (checksum or read error),
+2 usage or unreadable/unsupported archive, 3 password missing or wrong,
+4 no such version, 5 nothing matched, 6 not enough disk space, 130 interrupted.
 
 <archive> is a .hbk directory, or any drive/folder containing one.
 Globs match the full archive path, which starts with the share name.
@@ -37,13 +52,26 @@ import shutil
 import sqlite3
 import sys
 import time
-
+from datetime import datetime
 
 from . import archive as hbk
 from . import index as hbk_index
 from . import runner as hbk_run
 
 CODECS = {"0": "none", "1": "lz4", "2": "lz4-hc", "4": "zlib"}
+
+# Exit codes. Scripts depend on these; they are documented in the README.
+EXIT_OK = 0
+EXIT_FAILED = 1        # one or more files failed to extract/verify (checksum, read error)
+EXIT_USAGE = 2         # bad arguments, archive missing/unreadable/unsupported
+EXIT_PASSWORD = 3      # encrypted archive: no password given, or the wrong one
+EXIT_VERSION = 4       # the requested backup version does not exist/is not complete
+EXIT_NO_MATCH = 5      # the glob or pattern matched no file
+EXIT_NO_SPACE = 6      # the destination does not have room for the selection
+
+
+class UsageError(Exception):
+    pass
 
 
 def human(n) -> str:
@@ -92,20 +120,23 @@ def resolve_password(password):
     return password or os.environ.get("HBK_PASSWORD")
 
 
-def open_archive(archive, password=None):
-    """Open, prompting for a password only if the archive turns out to be encrypted."""
+def open_archive(archive, password=None, version=None, allow_incomplete=False):
+    """Open, prompting for a password only if the archive turns out to be encrypted.
+
+    Errors propagate (WrongPassword, NeedPassword, VersionNotFound...) so `main_entry`
+    can turn each into its documented exit code.
+    """
+    kw = {"version": version, "allow_incomplete": allow_incomplete}
     try:
-        return hbk.Archive(archive, password=password)
+        return hbk.Archive(archive, password=password, **kw)
     except hbk.NeedPassword:
         pw = resolve_password(password)
         if not pw:
             if not sys.stdin.isatty():
-                sys.exit("archive is encrypted - pass --password or set HBK_PASSWORD")
+                raise hbk.NeedPassword(
+                    "archive is encrypted - pass --password or set HBK_PASSWORD") from None
             pw = getpass.getpass("archive password: ")
-        try:
-            return hbk.Archive(archive, password=pw)
-        except Exception as e:
-            sys.exit(f"{type(e).__name__}: {e}")
+        return hbk.Archive(archive, password=pw, **kw)
 
 
 def arc_password(arc, password):
@@ -113,8 +144,29 @@ def arc_password(arc, password):
     return getattr(arc, "_password", None)
 
 
-def open_index(archive, password=None):
-    arc = open_archive(archive, password)
+def when(ts) -> str:
+    """Unix seconds as local 'YYYY-MM-DD HH:MM:SS', or '?' when unknown."""
+    return "?" if ts is None else datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def describe_version(arc) -> str:
+    """One line naming the version being read, for stderr."""
+    try:
+        vs = {v.id: v for v in arc.versions()}
+        vid = arc.version if arc.version is not None else arc.resolve_version(None)
+    except (hbk.UnsupportedArchive, hbk.VersionNotFound):
+        return "reading the newest version of each share"
+    v = vs.get(vid)
+    what = "version" if arc.version is not None else "newest complete version"
+    if v is None:
+        return f"reading {what} {vid}"
+    return f"reading {what} {vid} ({when(v.timestamp)}, {v.status or 'status unknown'})"
+
+
+def open_index(archive, password=None, version=None, allow_incomplete=False):
+    arc = open_archive(archive, password, version, allow_incomplete)
+    if len(arc.versions()) > 1 or arc.version is not None:
+        print(describe_version(arc), file=sys.stderr)
     if not hbk_index.is_current(arc):
         print("indexing archive (first use only)...", file=sys.stderr)
         hbk_index.build(arc, progress=lambda s, d, n: print(f"  {s} [{d}/{n}]", file=sys.stderr))
@@ -163,7 +215,58 @@ def run(arc, sel, dest, jobs, check, password=None, strict=False):
         print(f"  FAIL {p}: {m}")
     if len(r.errors) > 20:
         print(f"  ... and {len(r.errors)-20} more")
-    return 1 if r.failed else 0
+    return EXIT_FAILED if r.failed else EXIT_OK
+
+
+def pop_option(a: list[str], *names: str) -> str | None:
+    """Remove `NAME VALUE` or `NAME=VALUE` from `a` and return VALUE (None if absent)."""
+    for i, x in enumerate(a):
+        for n in names:
+            if x == n:
+                if i + 1 >= len(a):
+                    raise UsageError(f"{n} needs a value")
+                v = a[i + 1]
+                del a[i:i + 2]
+                return v
+            if x.startswith(n + "="):
+                del a[i]
+                return x[len(n) + 1:]
+    return None
+
+
+def pop_flag(a: list[str], name: str) -> bool:
+    if name in a:
+        a.remove(name)
+        return True
+    return False
+
+
+def cmd_versions(archive, porcelain: bool) -> int:
+    """List backup versions. Needs no password: version_info.db is stored in the clear."""
+    arc = hbk.Archive(archive, unlock=False)
+    vs = arc.versions()
+    if not vs:
+        print("no backup versions found", file=sys.stderr)
+        return EXIT_VERSION
+    try:
+        default = arc.resolve_version(None)
+    except hbk.VersionNotFound:
+        default = None
+    if porcelain:
+        # id <TAB> local ISO time with offset <TAB> unix seconds <TAB> status
+        for v in vs:
+            iso = ("-" if v.timestamp is None else
+                   datetime.fromtimestamp(v.timestamp).astimezone().isoformat())
+            print(f"{v.id}\t{iso}\t{'-' if v.timestamp is None else v.timestamp}"
+                  f"\t{v.status or '-'}")
+        return EXIT_OK
+    shares = {s: set(arc.share_versions(s)) for s in arc.shares()}
+    print(f"  {'version':>7}  {'started (local time)':<19}  {'status':<10}  shares")
+    for v in vs:
+        mark = "  <- default" if v.id == default else ""
+        here = ",".join(s for s, have in shares.items() if v.id in have) or "-"
+        print(f"  {v.id:>7}  {when(v.timestamp):<20} {(v.status or '?'):<10}  {here}{mark}")
+    return EXIT_OK
 
 
 def main() -> int:
@@ -172,23 +275,30 @@ def main() -> int:
         from . import __version__
         print(f"hbkit {__version__}")
         return 0
-    jobs = 8
-    password = None
-    if "-j" in a:
-        i = a.index("-j")
-        jobs = int(a[i + 1])
-        del a[i:i + 2]
-    strict = "--strict" in a
-    if strict:
-        a.remove("--strict")
-    for flag in ("-p", "--password"):
-        if flag in a:
-            i = a.index(flag)
-            password = a[i + 1]
-            del a[i:i + 2]
+    try:
+        jobs = 8
+        j = pop_option(a, "-j")
+        if j is not None:
+            try:
+                jobs = int(j)
+            except ValueError:
+                raise UsageError("-j needs a number") from None
+        strict = pop_flag(a, "--strict")
+        password = pop_option(a, "-p", "--password")
+        version = pop_option(a, "--version")
+        before = pop_option(a, "--before")
+        if version is not None and before is not None:
+            raise UsageError("use either --version or --before, not both")
+        if before is not None:
+            version = "@" + before
+        allow_incomplete = pop_flag(a, "--allow-incomplete")
+        porcelain = pop_flag(a, "--porcelain")
+    except UsageError as e:
+        print(e, file=sys.stderr)
+        return EXIT_USAGE
     if len(a) < 2 and (not a or a[0] != "remotes"):
         print(__doc__)
-        return 1
+        return EXIT_USAGE
     if a[0] in ("mount", "unmount", "remotes", "warm"):
         from . import mount as m
         try:
@@ -229,6 +339,13 @@ def main() -> int:
 
     archive, cmd = a[0], a[1]
 
+    if cmd == "versions":
+        if version is not None:
+            print("versions lists every version; it takes no --version/--before",
+                  file=sys.stderr)
+            return EXIT_USAGE
+        return cmd_versions(archive, porcelain)
+
     if cmd == "doctor":
         from . import doctor
         sample = None
@@ -247,17 +364,22 @@ def main() -> int:
         kw = {"password": resolve_password(password)}
         if sample is not None:
             kw["sample"] = sample
+        if version is not None or allow_incomplete:
+            kw["version"], kw["allow_incomplete"] = version, allow_incomplete
         r = doctor.diagnose(archive, **kw)
         print(doctor.render(r))
         return 0 if (r.ok and not r.blockers) else 1
 
     if cmd == "tui":
         from .tui import HBKApp
-        HBKApp(jobs, archive).run()
+        if version is not None or allow_incomplete:
+            # fail here, on the terminal, rather than inside the full-screen UI
+            hbk.Archive(archive, unlock=False).resolve_version(version, allow_incomplete)
+        HBKApp(jobs, archive, version=version, allow_incomplete=allow_incomplete).run()
         return 0
 
     if cmd == "info":
-        arc = open_archive(archive, password)
+        arc = open_archive(archive, password, version, allow_incomplete)
         cfg = arc.task_config()
         print(f"archive   : {arc.root}")
         print(f"task      : {cfg.get('name','?')}   host {cfg.get('host_name','?')}")
@@ -265,42 +387,60 @@ def main() -> int:
         print(f"encrypted : {'yes (unlocked)' if arc.crypto else arc.is_encrypted()}")
         print(f"sources   : {cfg.get('backup_folders','?')}")
         for s in arc.shares():
-            print(f"  share {s}   versions={arc.share_versions(s)}")
+            try:
+                reading = f"   reading={arc.share_version(s)}"
+            except FileNotFoundError:
+                reading = "   (not in the selected version)"
+            print(f"  share {s}   versions={arc.share_versions(s)}{reading}")
+        try:
+            vs = arc.versions()
+        except hbk.UnsupportedArchive as e:
+            print(f"versions  : unknown ({e})")
+            return 0
+        print(f"versions  : {len(vs)}   {describe_version(arc)}")
+        for v in vs:
+            print(f"  {v.id:>5}  {when(v.timestamp)}  {v.status or '?'}")
         return 0
 
     if cmd in ("get", "verify"):
         # globs match paths, which start with "/", so a leading "-" is always a stray option
         opts = [x for x in a[2:] if x.startswith("-")]
         if opts:
-            print(f"unknown option {opts[0]}" + (
-                " (hbkit always reads the newest backup version)" if opts[0] == "--version" else ""),
-                file=sys.stderr)
-            return 2
+            print(f"unknown option {opts[0]}", file=sys.stderr)
+            return EXIT_USAGE
 
-    arc, db = open_index(archive, password)
+    if cmd not in ("list", "get", "verify"):
+        print(__doc__)
+        return EXIT_USAGE
+
+    arc, db = open_index(archive, password, version, allow_incomplete)
 
     if cmd == "list":
-        pat = a[2].lower() if len(a) > 2 else ""
+        pat = a[2] if len(a) > 2 else ""
+        if any(c in pat for c in "*?["):        # a glob, matched exactly as `get` does
+            match = lambda p: fnmatch.fnmatch(p, pat)          # noqa: E731
+        else:                                   # plain text: case-insensitive substring
+            match = lambda p: pat.lower() in p.lower()         # noqa: E731
         n = tot = 0
         for path, ovf, size, mt in all_files(db):
-            if pat in path.lower():
+            if match(path):
                 n += 1
                 tot += size or 0
                 if n <= 200:
                     print(f"{size or 0:>13,}  {path}")
         print(f"\n{n:,} files, {human(tot)}" + (" (first 200 shown)" if n > 200 else ""))
-        return 0
+        return EXIT_OK if n else EXIT_NO_MATCH
 
     if cmd in ("get", "verify"):
         if len(a) < 3 or (cmd == "get" and len(a) < 4):
             print(__doc__)
-            return 1
+            return EXIT_USAGE
         glob = a[2]
         dest = os.path.abspath(os.path.expanduser(a[3])) if cmd == "get" else ""
         sel = [row for row in all_files(db) if fnmatch.fnmatch(row[0], glob)]
         if not sel:
             print("no files matched that glob")
-            return 1
+            return EXIT_NO_MATCH
         if cmd == "get":
             need = sum(s[2] for s in sel)
             probe = dest
@@ -309,12 +449,12 @@ def main() -> int:
             free = shutil.disk_usage(probe or "/").free
             if need > free:
                 print(f"not enough space: need {human(need)}, have {human(free)} free")
-                return 1
+                return EXIT_NO_SPACE
         return run(arc, sel, dest, jobs, cmd == "verify",
                    password=arc_password(arc, password), strict=strict)
 
     print(__doc__)
-    return 1
+    return EXIT_USAGE
 
 
 def main_entry() -> int:
@@ -324,7 +464,10 @@ def main_entry() -> int:
         return main()
     except WrongPassword:
         print("wrong password for this archive", file=sys.stderr)
-        return 2
+        return EXIT_PASSWORD
+    except hbk.VersionNotFound as e:
+        print(f"{e}", file=sys.stderr)
+        return EXIT_VERSION
     except MissingCryptoDeps as e:
         print(f"{e}", file=sys.stderr)
         return 2
@@ -335,7 +478,7 @@ def main_entry() -> int:
         return 2
     except hbk.NeedPassword as e:
         print(f"{e}", file=sys.stderr)
-        return 2
+        return EXIT_PASSWORD
     except FileNotFoundError as e:
         print(f"{e}", file=sys.stderr)
         return 2

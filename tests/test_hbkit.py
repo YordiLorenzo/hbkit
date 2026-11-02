@@ -295,12 +295,12 @@ def test_a_chunk_no_key_decodes_is_an_error_even_without_verify():
         arc.read_chunk(3, 0, verify=False)
 
 
-def test_verify_rejects_options_it_does_not_take():
-    """`verify '*' --version 3` used to verify the newest version and say nothing."""
+def test_verify_still_rejects_options_it_does_not_take():
+    """`verify '*' --verison 3` must fail loudly, not verify the default version."""
     r = subprocess.run([sys.executable, "-m", "hbkit.cli", "/no/such/archive",
-                        "verify", "*", "--version", "3"], capture_output=True, text=True)
+                        "verify", "*", "--verison", "3"], capture_output=True, text=True)
     assert r.returncode == 2
-    assert "unknown option --version" in r.stderr
+    assert "unknown option --verison" in r.stderr
 
 
 # ------------------------------------------------- shard maths (no archive needed)
@@ -693,9 +693,16 @@ def test_missing_or_malformed_version_is_refused(tmp_path, spec):
         hbk.Archive(root, version=spec)
 
 
+# Dates on the command line are local time. Tests that check dates pin it to UTC through
+# TZ, which needs time.tzset - absent on Windows, where they are skipped.
+needs_tz = pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset (POSIX)")
+
+
 @pytest.fixture
 def utc(monkeypatch):
-    """Dates on the command line are local time; pin local time to UTC for the tests."""
+    """Pin local time to UTC for the duration of a test."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("needs time.tzset (POSIX)")
     monkeypatch.setenv("TZ", "UTC")
     time.tzset()
     yield
@@ -760,3 +767,189 @@ def test_each_version_gets_its_own_index(tmp_path, monkeypatch):
     assert "-v1-" in os.path.basename(p1) and "-v2-" in os.path.basename(p2)
     # building v2 must not have invalidated v1's index
     assert hbk_index.is_current(hbk.Archive(root, version=1))
+
+
+def _hbk(tmp_path, *args, password=None):
+    env = {**os.environ, "HBK_CACHE": str(tmp_path / "cache"), "TZ": "UTC"}
+    env.pop("HBK_PASSWORD", None)
+    if password:
+        env["HBK_PASSWORD"] = password
+    return subprocess.run([sys.executable, "-m", "hbkit.cli", *map(str, args)],
+                          capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+
+
+GLOB = "/db_staging/firebird/*.gbk"
+DB_ONE = "db_staging/firebird/db one.gbk"
+
+
+@pytest.mark.parametrize("encrypted", [False, True], ids=["plain", "encrypted"])
+def test_get_returns_exactly_the_requested_versions_bytes(tmp_path, encrypted):
+    """Versions 2 and 3 rebuild the file from chunks several versions wrote - on the
+    encrypted archive, under several versions' keys."""
+    import synth
+    root, bodies = _three_versions(tmp_path, encrypted=encrypted)
+    pw = synth.PASSWORD if encrypted else None
+    for n, want in enumerate(bodies, 1):
+        out = tmp_path / f"out{n}"
+        r = _hbk(tmp_path, root, "get", GLOB, out, "--version", n, "-j", "2", password=pw)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert (out / DB_ONE).read_bytes() == want, f"version {n}"
+        assert (out / "db_staging/firebird/other.gbk").read_bytes() == \
+            f"other v{n}".encode() * 50
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "newest", password=pw)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "newest" / DB_ONE).read_bytes() == bodies[-1]
+
+
+@needs_tz
+@pytest.mark.parametrize("args", [["--version", "@2025-10-10"], ["--before", "2025-10-10 23:59"],
+                                  ["--version=@2025-10-10"], ["--before=2025-10-10"]])
+def test_get_by_date(tmp_path, args):
+    root, bodies = _three_versions(tmp_path)
+    out = tmp_path / "out"
+    r = _hbk(tmp_path, root, "get", GLOB, out, *args)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (out / DB_ONE).read_bytes() == bodies[1]
+
+
+def test_get_resumes_within_a_version_and_restarts_across_versions(tmp_path):
+    root, bodies = _three_versions(tmp_path)
+    out = tmp_path / "out"
+    assert _hbk(tmp_path, root, "get", GLOB, out, "--version", "1").returncode == 0
+    r = _hbk(tmp_path, root, "get", GLOB, out, "--version", "1")
+    assert r.returncode == 0 and "2 already present" in r.stdout, r.stdout
+    assert (out / DB_ONE).read_bytes() == bodies[0]
+
+
+def test_verify_and_list_follow_the_selected_version(tmp_path):
+    root, bodies = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "verify", GLOB, "--version", "1")
+    assert r.returncode == 0 and "2 verified" in r.stdout, r.stdout + r.stderr
+    for n, body in enumerate(bodies, 1):
+        r = _hbk(tmp_path, root, "list", "db one", "--version", n)
+        assert r.returncode == 0, r.stderr
+        assert f"{len(body):>13,}  /{DB_ONE}" in r.stdout, r.stdout
+
+
+def test_list_accepts_the_same_glob_as_get(tmp_path):
+    """`list "/db_staging/firebird/*"` searched for a literal '*' and found nothing."""
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "list", GLOB)
+    assert r.returncode == 0 and "2 files" in r.stdout, r.stdout + r.stderr
+
+
+@needs_tz
+def test_versions_porcelain_is_one_tab_separated_line_per_version(tmp_path):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    r = _hbk(tmp_path, root, "versions", "--porcelain")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == [
+        f"1\t2025-10-09T08:53:20+00:00\t{T0}\tComplete",
+        f"2\t2025-10-10T08:53:20+00:00\t{T0 + DAY}\tComplete",
+        f"3\t2025-10-11T08:53:20+00:00\t{T0 + 2 * DAY}\tBackingup",
+    ]
+
+
+@needs_tz
+def test_versions_marks_the_default_and_needs_no_password(tmp_path):
+    """version_info.db is stored in the clear, so a script can pick a version before
+    it has the password in hand."""
+    root, _ = _three_versions(tmp_path, encrypted=True,
+                              statuses=("Complete", "Complete", "Backingup"))
+    r = _hbk(tmp_path, root, "versions")
+    assert r.returncode == 0, r.stderr
+    line2 = next(x for x in r.stdout.splitlines() if x.split()[:1] == ["2"])
+    assert "2025-10-10 08:53:20" in line2 and "Complete" in line2 and "default" in line2
+    assert "Backingup" in r.stdout
+
+
+@pytest.mark.parametrize(("args", "code", "msg"), [
+    (["get", GLOB, "OUT", "--version", "9"], 4, "version 9 does not exist"),
+    (["list", "--version", "3"], 4, "not complete"),
+    (["verify", GLOB, "--version", "@2020-01-01"], 4, "no complete version at or before"),
+    (["get", GLOB, "OUT", "--version", "1", "--before", "2025-10-10"], 2, "not both"),
+    (["get", "/nothing/*", "OUT"], 5, ""),
+    (["list", "/nothing/*"], 5, ""),
+    (["get", GLOB], 2, ""),
+    (["versions", "--version", "1"], 2, "takes no --version"),
+])
+def test_exit_codes(tmp_path, args, code, msg):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    r = _hbk(tmp_path, root, *[str(tmp_path / "out") if x == "OUT" else x for x in args])
+    assert r.returncode == code, r.stdout + r.stderr
+    assert msg in r.stderr + r.stdout
+
+
+def test_exit_codes_for_passwords(tmp_path):
+    import synth
+    root, _ = _three_versions(tmp_path, encrypted=True)
+    assert _hbk(tmp_path, root, "list").returncode == 3                       # none given
+    r = _hbk(tmp_path, root, "list", password=synth.PASSWORD + "x")
+    assert r.returncode == 3 and "wrong password" in r.stderr
+    assert _hbk(tmp_path, root, "list", password=synth.PASSWORD).returncode == 0
+
+
+def test_a_corrupt_chunk_fails_with_exit_code_1(tmp_path):
+    root, _ = _three_versions(tmp_path)
+    bucket = os.path.join(root, "Pool", "0", "0", "1.bucket")       # written by version 2
+    with open(bucket, "r+b") as fh:
+        b = bytearray(fh.read())
+        b[len(b) // 2] ^= 0xFF
+        fh.seek(0)
+        fh.write(b)
+    r = _hbk(tmp_path, root, "verify", GLOB, "--version", "2")
+    assert r.returncode == 1 and "FAIL" in r.stdout, r.stdout + r.stderr
+    assert _hbk(tmp_path, root, "verify", GLOB, "--version", "1").returncode == 0
+
+
+@needs_tz
+def test_info_lists_versions_with_dates(tmp_path):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "info", "--version", "@2025-10-09")
+    assert r.returncode == 0, r.stderr
+    assert "reading=1" in r.stdout
+    assert "2025-10-11 08:53:20  Complete" in r.stdout
+
+
+def test_doctor_reads_the_selected_version(tmp_path):
+    from hbkit import doctor
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    r = doctor.diagnose(root, version="1")
+    assert r.ok and not r.blockers, (r.blockers, r.checks)
+    facts = dict(r.facts)
+    assert facts["reading version"].startswith("1 ")
+    assert not any("reads the newest" in w for w in r.warnings)
+    r = doctor.diagnose(root, version="3")
+    assert r.blockers and "not complete" in r.blockers[0]
+    r = doctor.diagnose(root)
+    assert dict(r.facts)["reading version"].startswith("2 ")
+
+
+def test_doctor_cli_forwards_the_version(tmp_path):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "doctor", "--version", "1")
+    assert r.returncode == 0 and "reading version : 1 " in r.stdout, r.stdout
+
+
+def test_tui_opens_the_selected_version(tmp_path, monkeypatch):
+    import asyncio
+
+    from hbkit import index as hbk_index
+    from hbkit import tui
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    root, _ = _three_versions(tmp_path)
+
+    class App(tui.HBKApp):
+        def on_mount(self):
+            self.push_screen(tui.ArchiveScreen(None, version=self.version))
+
+    async def probe():
+        app = App(1, version="1")
+        async with app.run_test() as pilot:
+            app.screen.probe(root)
+            await pilot.pause()
+            return app.screen._arc, str(app.screen.query_one("#probe", tui.Static).render())
+
+    arc, text = asyncio.run(probe())
+    assert arc is not None and arc.version == 1
+    assert "version 1" in text

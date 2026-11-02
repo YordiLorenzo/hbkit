@@ -311,10 +311,15 @@ class Archive:
     """One .hbk archive. Cheap to construct; caches open handles and bucket indexes."""
 
     def __init__(self, root: str, password: str | None = None,
-                 version: str | int | None = None, allow_incomplete: bool = False):
+                 version: str | int | None = None, allow_incomplete: bool = False,
+                 unlock: bool = True):
         """`version` picks the backup version to read (see `resolve_version`); None reads
         the newest complete one. Only the share databases depend on it - the data pool is
-        shared by every version - so extraction itself needs no version."""
+        shared by every version - so extraction itself needs no version.
+
+        `unlock=False` opens an encrypted archive without its password, for metadata that
+        is stored in the clear (versions, task settings); names and data stay unreadable.
+        """
         self.root = find_archive_root(root)
         self.crypto = None
         c, p = f"{self.root}/Config", f"{self.root}/Pool"
@@ -338,7 +343,7 @@ class Archive:
         self._brec: dict[int, int] = {}
         self._bkey: dict[int, int] = {}      # bucket id -> index into crypto.data_keys
         self._password = None
-        if self.is_encrypted():
+        if unlock and self.is_encrypted():
             if password is None:
                 raise NeedPassword(f"{self.root} is encrypted - a password is required")
             self.crypto = self._open_crypto(password)
