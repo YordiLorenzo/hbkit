@@ -627,3 +627,112 @@ def test_tui_free_space_follows_home_and_relative_destinations(tmp_path, monkeyp
 
     line = asyncio.run(space_line())
     assert "free" in line and "invalid" not in line, line
+
+
+# --------------------------------------- backup versions (synthetic archives, no data needed)
+
+T0 = 1_760_000_000          # 2025-10-09 08:53:20 UTC; versions below are a day apart
+DAY = 86_400
+
+
+def _three_versions(tmp_path, encrypted=False, statuses=("Complete",) * 3, **kw):
+    """The same file in three versions, with different bytes in each. Version 2 and 3
+    reuse chunks written by earlier versions, as Hyper Backup's dedup does."""
+    import synth
+    pytest.importorskip("nacl.bindings")
+    try:
+        hbk.lz4()
+    except RuntimeError:
+        pytest.skip("liblz4 not available")
+    head, mid = b"H" * 3000 + os.urandom(1000), os.urandom(5000)
+    bodies = [[head, os.urandom(4096)],
+              [head, mid, os.urandom(2048)],
+              [head, mid, os.urandom(777)]]
+    vs = [synth.V({"firebird/db one.gbk": parts,
+                   "firebird/other.gbk": [f"other v{i + 1}".encode() * 50]},
+                  T0 + i * DAY, status)
+          for i, (parts, status) in enumerate(zip(bodies, statuses))]
+    root = synth.build(str(tmp_path / "arc"), vs, encrypted=encrypted, **kw)
+    return root, [b"".join(p) for p in bodies]
+
+
+def test_versions_lists_id_start_time_and_completion(tmp_path):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    vs = hbk.Archive(root).versions()
+    assert [v.id for v in vs] == [1, 2, 3]
+    assert [v.timestamp for v in vs] == [T0, T0 + DAY, T0 + 2 * DAY]
+    assert [v.status for v in vs] == ["Complete", "Complete", "Backingup"]
+    assert [v.complete for v in vs] == [True, True, False]
+
+
+def test_default_is_the_newest_complete_version(tmp_path):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    arc = hbk.Archive(root)
+    assert arc.resolve_version(None) == 2
+    assert os.path.basename(arc.share_db("db_staging")) == "2.db"
+
+
+def test_an_explicit_version_number_is_used_exactly(tmp_path):
+    root, _ = _three_versions(tmp_path)
+    arc = hbk.Archive(root, version="1")
+    assert arc.version == 1
+    assert os.path.basename(arc.share_db("db_staging")) == "1.db"
+
+
+def test_unfinished_version_is_refused_unless_allowed(tmp_path):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    with pytest.raises(hbk.VersionNotFound, match="not complete"):
+        hbk.Archive(root, version="3")
+    assert hbk.Archive(root, version="3", allow_incomplete=True).version == 3
+
+
+@pytest.mark.parametrize("spec", ["9", "0", "-1", "abc", "@not-a-date"])
+def test_missing_or_malformed_version_is_refused(tmp_path, spec):
+    root, _ = _three_versions(tmp_path)
+    with pytest.raises(hbk.VersionNotFound):
+        hbk.Archive(root, version=spec)
+
+
+@pytest.fixture
+def utc(monkeypatch):
+    """Dates on the command line are local time; pin local time to UTC for the tests."""
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+# v1 2025-10-09 08:53:20, v2 2025-10-10 08:53:20, v3 2025-10-11 08:53:20 (UTC)
+@pytest.mark.parametrize(("spec", "want"), [
+    ("@2025-10-09", 1),                 # a bare date means "by the end of that day"
+    ("@2025-10-10", 2),
+    ("@2025-10-10 08:53", 2),           # minute precision includes that whole minute
+    ("@2025-10-10 08:52", 1),
+    ("@2025-10-10T08:53:19", 1),        # second precision is exact
+    ("@2025-10-10 08:53:20", 2),
+    ("@2030-01-01", 2),                 # v3 is unfinished, so it is skipped
+])
+def test_version_by_date_is_newest_complete_not_later_than_it(tmp_path, utc, spec, want):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    assert hbk.Archive(root).resolve_version(spec) == want
+
+
+def test_version_by_date_can_include_unfinished_versions_when_asked(tmp_path, utc):
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    assert hbk.Archive(root).resolve_version("@2030-01-01", allow_incomplete=True) == 3
+
+
+def test_version_by_date_before_the_first_backup_is_refused(tmp_path, utc):
+    root, _ = _three_versions(tmp_path)
+    with pytest.raises(hbk.VersionNotFound, match="no complete version at or before"):
+        hbk.Archive(root, version="@2025-10-08")
+
+
+def test_version_by_date_needs_recorded_dates(tmp_path, utc):
+    root, _ = _three_versions(tmp_path, with_version_info=False)
+    arc = hbk.Archive(root)
+    assert [v.id for v in arc.versions()] == [1, 2, 3]       # numbers still work
+    assert arc.resolve_version("2") == 2
+    with pytest.raises(hbk.VersionNotFound, match="no version dates"):
+        arc.resolve_version("@2025-10-10")

@@ -29,6 +29,7 @@ import re
 import struct
 import zlib
 from collections import OrderedDict
+from dataclasses import dataclass
 
 class NeedPassword(Exception):
     """The archive is encrypted and no password was supplied."""
@@ -38,6 +39,46 @@ class UnsupportedArchive(Exception):
     """The archive uses a layout this reader does not implement. Never guess - a wrong
     guess here means silently wrong bytes, which is the one outcome a recovery tool
     must never produce."""
+
+
+def parse_moment(text: str) -> float:
+    """'YYYY-MM-DD[ HH:MM[:SS]]' (or with 'T') in local time -> the last unix second it
+    covers: a bare date runs to 23:59:59, a minute to :59, a second is exact. Raises
+    ValueError for anything else."""
+    import datetime as dt
+
+    text = text.strip()
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?", text)
+    if not m:
+        raise ValueError(f"not a date: {text!r} (want YYYY-MM-DD[ HH:MM[:SS]])")
+    day = dt.date.fromisoformat(m.group(1))
+    if m.group(2) is None:
+        start, span = dt.datetime.combine(day, dt.time()), 86_400
+    else:
+        start = dt.datetime.combine(day, dt.time(int(m.group(2)), int(m.group(3)),
+                                                 int(m.group(4) or 0)))
+        span = 1 if m.group(4) is not None else 60
+    return start.timestamp() + span - 1
+
+
+class VersionNotFound(Exception):
+    """The requested backup version does not exist, is not complete, or no version
+    matches the requested date."""
+
+
+@dataclass(frozen=True)
+class Version:
+    """One backup run. `timestamp` (unix seconds, start of the run) and `status` are None
+    when the archive has no Config/version_info.db to say."""
+    id: int
+    timestamp: int | None = None
+    status: str | None = None
+
+    @property
+    def complete(self) -> bool | None:
+        """True only for status 'Complete', the one value seen on real archives; any
+        other status counts as unfinished. None when the archive does not record it."""
+        return None if self.status is None else self.status == "Complete"
 
 
 MAX_OPEN_BUCKETS = int(os.environ.get("HBK_MAX_OPEN", "64"))
@@ -269,7 +310,11 @@ def find_archive_root(path: str) -> str:
 class Archive:
     """One .hbk archive. Cheap to construct; caches open handles and bucket indexes."""
 
-    def __init__(self, root: str, password: str | None = None):
+    def __init__(self, root: str, password: str | None = None,
+                 version: str | int | None = None, allow_incomplete: bool = False):
+        """`version` picks the backup version to read (see `resolve_version`); None reads
+        the newest complete one. Only the share databases depend on it - the data pool is
+        shared by every version - so extraction itself needs no version."""
         self.root = find_archive_root(root)
         self.crypto = None
         c, p = f"{self.root}/Config", f"{self.root}/Pool"
@@ -306,6 +351,9 @@ class Archive:
             raise UnsupportedArchive(
                 f"chunk_index record size {self.ci.record_size}, "
                 "only 16 (v1/v2) and 29 (v3) are implemented")
+        self.version: int | None = None
+        if version is not None:
+            self.version = self.resolve_version(version, allow_incomplete)
 
     # -- metadata ---------------------------------------------------------
 
@@ -366,13 +414,96 @@ class Archive:
                 vs.add(int(m.group(1)))
         return sorted(vs)
 
+    def versions(self) -> list[Version]:
+        """Every backup version the archive records, oldest first.
+
+        Read from Config/version_info.db (plain SQLite even on encrypted archives). An
+        archive without that file falls back to the version numbers of the share
+        databases, with no dates and no completion status. A version_info.db without the
+        columns hbkit relies on is refused rather than guessed at.
+        """
+        import sqlite3
+
+        try:
+            p = resolve(f"{self.root}/Config", "version_info.db")
+        except FileNotFoundError:
+            ids = sorted({v for s in self.shares() for v in self.share_versions(s)})
+            return [Version(i) for i in ids]
+        db = sqlite3.connect(f"file:{p}?immutable=1", uri=True)
+        try:
+            cols = {r[1] for r in db.execute("PRAGMA table_info(version_info)")}
+            if not {"id", "timestamp", "status"} <= cols:
+                raise UnsupportedArchive(
+                    f"{p}: no version_info(id, timestamp, status) table - unknown layout")
+            rows = db.execute(
+                "SELECT id, timestamp, status FROM version_info ORDER BY id").fetchall()
+        finally:
+            db.close()
+        return [Version(int(i), None if t is None else int(t), "" if s is None else str(s))
+                for i, t, s in rows]
+
+    def resolve_version(self, spec: str | int | None, allow_incomplete: bool = False) -> int:
+        """Turn a version selector into a version id.
+
+        None: the newest complete version. N: exactly version N, which must exist and,
+        unless `allow_incomplete`, be complete. '@YYYY-MM-DD[ HH:MM[:SS]]': the newest
+        complete version that started no later than that local time (see `parse_moment`).
+        Raises VersionNotFound otherwise.
+        """
+        vs = self.versions()
+        usable = [v for v in vs if allow_incomplete or v.complete is not False]
+        if spec is None:
+            if not usable:
+                raise VersionNotFound("the archive has no complete backup version")
+            return usable[-1].id
+        text = str(spec).strip()
+        if text.startswith("@"):
+            try:
+                cutoff = parse_moment(text[1:])
+            except ValueError as e:
+                raise VersionNotFound(str(e)) from None
+            if vs and all(v.timestamp is None for v in vs):
+                raise VersionNotFound("this archive records no version dates "
+                                      "(no Config/version_info.db); choose a version number")
+            hits = [v for v in usable if v.timestamp is not None and v.timestamp <= cutoff]
+            if not hits:
+                kind = "version" if allow_incomplete else "complete version"
+                raise VersionNotFound(f"no {kind} at or before {text[1:]}")
+            return max(hits, key=lambda v: (v.timestamp, v.id)).id
+        if not text.isdigit():
+            raise VersionNotFound(f"not a version number: {text!r}")
+        want = int(text)
+        found = next((v for v in vs if v.id == want), None)
+        if found is None:
+            have = ", ".join(str(v.id) for v in vs) or "none"
+            raise VersionNotFound(f"version {want} does not exist (versions: {have})")
+        if found.complete is False and not allow_incomplete:
+            raise VersionNotFound(f"version {want} is not complete (status {found.status!r}); "
+                                  "pass --allow-incomplete to read it anyway")
+        return want
+
+    def share_version(self, share: str) -> int:
+        """The version of `share` to read: the selected one, or else the newest complete
+        version this share has a database for."""
+        d = f"{self.root}/Config/@Share/{share}"
+        have = self.share_versions(share)
+        if self.version is not None:
+            if self.version not in have:
+                raise FileNotFoundError(f"share {share} is not in version {self.version}")
+            return self.version
+        try:
+            done = {v.id for v in self.versions() if v.complete is not False}
+        except UnsupportedArchive:
+            done = set(have)            # unknown metadata layout: newest present, as before
+        ok = [v for v in have if v in done]
+        if not ok:
+            raise FileNotFoundError(f"no complete version db in {d}")
+        return max(ok)
+
     def share_db(self, share: str, version: int | None = None) -> str:
         d = f"{self.root}/Config/@Share/{share}"
         if version is None:
-            vs = self.share_versions(share)
-            if not vs:
-                raise FileNotFoundError(f"no version db in {d}")
-            version = max(vs)
+            version = self.share_version(share)
         return resolve(d, f"{version}.db")
 
     # -- chunk plumbing ---------------------------------------------------
