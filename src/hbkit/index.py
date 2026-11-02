@@ -44,7 +44,7 @@ def fingerprint(arc: hbk.Archive) -> str:
     """Changes whenever the selected version, or any share database it reads, changes,
     so a stale index rebuilds itself and two versions never share one."""
     h = hashlib.sha1(f"v{SCHEMA}|{arc.root}|enc={arc.crypto is not None}"
-                     f"|version={getattr(arc, 'version', None)}".encode())
+                     f"|version={_version(arc)}".encode())
     for share in arc.shares():
         try:
             p = arc.share_db(share)
@@ -55,12 +55,47 @@ def fingerprint(arc: hbk.Archive) -> str:
     return h.hexdigest()[:16]
 
 
-def cache_path(arc: hbk.Archive) -> str:
+def _version(arc) -> int | None:
+    """The version the index is built from. The default and an explicit --version naming
+    the same version resolve alike, so they share one index."""
+    sel = getattr(arc, "selected_version", None)
+    return sel() if sel else getattr(arc, "version", None)
+
+
+def _safe_name(arc) -> str:
     safe = os.path.basename(arc.root.rstrip("/")) or "archive"
-    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in safe)
-    ver = getattr(arc, "version", None)
+    return "".join(c if c.isalnum() or c in "-._" else "_" for c in safe)
+
+
+def cache_path(arc: hbk.Archive) -> str:
+    ver = _version(arc)
     tag = f"-v{ver}" if ver is not None else ""
-    return os.path.join(CACHE, f"{safe}{tag}-{fingerprint(arc)}.db")
+    return os.path.join(CACHE, f"{_safe_name(arc)}{tag}-{fingerprint(arc)}.db")
+
+
+def _prune_stale(arc: hbk.Archive, keep: str) -> None:
+    """Delete indexes of this archive and version that `keep` supersedes, and indexes
+    from before versions were tracked. Each one names its archive in its meta table, so
+    an index of another archive with the same directory name is never touched, and
+    other versions' indexes stay valid."""
+    import glob
+
+    ver = _version(arc)
+    want = "" if ver is None else str(ver)
+    for p in glob.glob(os.path.join(glob.escape(CACHE), f"{glob.escape(_safe_name(arc))}-*.db")):
+        if os.path.abspath(p) == os.path.abspath(keep):
+            continue
+        try:
+            db = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+            meta = dict(db.execute("SELECT key, value FROM meta").fetchall())
+            db.close()
+        except sqlite3.Error:
+            continue
+        if meta.get("root") == arc.root and meta.get("version", want) == want:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def is_current(arc: hbk.Archive) -> bool:
@@ -216,13 +251,14 @@ def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
     """)
     db.executemany("INSERT INTO meta VALUES (?,?)", [
         ("root", arc.root), ("schema", str(SCHEMA)),
-        ("version", "" if getattr(arc, "version", None) is None else str(arc.version)),
+        ("version", "" if _version(arc) is None else str(_version(arc))),
         ("fingerprint", fingerprint(arc)), ("built", str(int(time.time()))),
         ("complete", "1"),
     ])
     db.commit()
     db.close()
     os.replace(tmp, out)
+    _prune_stale(arc, out)
     return out
 
 

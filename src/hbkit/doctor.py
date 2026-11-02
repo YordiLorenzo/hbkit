@@ -131,19 +131,21 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
     except hbk.UnsupportedArchive as e:
         versions = {}
         r.warnings.append(f"cannot read backup versions: {e}")
-    vid = arc.version
-    if vid is None and versions:
-        try:
-            vid = arc.resolve_version(None)
-        except hbk.VersionNotFound as e:
-            r.warnings.append(str(e))
+    try:
+        vid = arc.selected_version()
+    except hbk.VersionNotFound as e:
+        r.blockers.append(f"version: {e}")
+        arc.close()
+        return r
     v = versions.get(vid)
     r.fact("backup versions", len(versions) or "?")
     if v is not None:
         when = (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(v.timestamp))
                 if v.timestamp is not None else "date unknown")
         r.fact("reading version", f"{v.id} ({when}, {v.status or 'status unknown'})"
-                                  + ("" if arc.version is not None else " - newest complete"))
+                                  + ("" if arc.version is not None else
+                                     " - newest" if arc.allow_incomplete else
+                                     " - newest complete"))
     if len(versions) > 1 and arc.version is None:
         r.warnings.append(f"{len(versions)} backup versions present; checking the newest "
                           "complete one - pick another with --version (see `versions`)")

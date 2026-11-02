@@ -152,12 +152,15 @@ def when(ts) -> str:
 def describe_version(arc) -> str:
     """One line naming the version being read, for stderr."""
     try:
+        vid = arc.selected_version()
         vs = {v.id: v for v in arc.versions()}
-        vid = arc.version if arc.version is not None else arc.resolve_version(None)
-    except (hbk.UnsupportedArchive, hbk.VersionNotFound):
-        return "reading the newest version of each share"
+    except hbk.UnsupportedArchive:
+        vid = None
+    if vid is None:
+        return "reading the newest version of each share (the archive does not record versions)"
     v = vs.get(vid)
-    what = "version" if arc.version is not None else "newest complete version"
+    what = ("version" if arc.version is not None else
+            "newest version" if arc.allow_incomplete else "newest complete version")
     if v is None:
         return f"reading {what} {vid}"
     return f"reading {what} {vid} ({when(v.timestamp)}, {v.status or 'status unknown'})"
@@ -223,7 +226,16 @@ def run(arc, sel, dest, jobs, check, password=None, strict=False):
 
 
 def pop_option(a: list[str], *names: str) -> str | None:
-    """Remove `NAME VALUE` or `NAME=VALUE` from `a` and return VALUE (None if absent)."""
+    """Remove `NAME VALUE` or `NAME=VALUE` from `a` and return VALUE (None if absent).
+    Giving the option twice is an error: silently using one of them would read the
+    wrong thing."""
+    v = _pop_one(a, names)
+    if v is not None and _pop_one(a, names) is not None:
+        raise UsageError(f"{names[-1]} given more than once")
+    return v
+
+
+def _pop_one(a: list[str], names: tuple[str, ...]) -> str | None:
     for i, x in enumerate(a):
         for n in names:
             if x == n:
@@ -240,7 +252,8 @@ def pop_option(a: list[str], *names: str) -> str | None:
 
 def pop_flag(a: list[str], name: str) -> bool:
     if name in a:
-        a.remove(name)
+        while name in a:
+            a.remove(name)
         return True
     return False
 
@@ -302,6 +315,13 @@ def main() -> int:
         return EXIT_USAGE
     if len(a) < 2 and (not a or a[0] != "remotes"):
         print(__doc__)
+        return EXIT_USAGE
+    cmd = a[1] if len(a) > 1 else ""
+    if porcelain and cmd != "versions":
+        print("--porcelain applies only to `versions`", file=sys.stderr)
+        return EXIT_USAGE
+    if a[0] in ("mount", "unmount", "remotes", "warm") and (version or allow_incomplete):
+        print(f"{a[0]} takes no --version/--before/--allow-incomplete", file=sys.stderr)
         return EXIT_USAGE
     if a[0] in ("mount", "unmount", "remotes", "warm"):
         from . import mount as m
@@ -472,6 +492,9 @@ def main_entry() -> int:
     except hbk.VersionNotFound as e:
         print(f"{e}", file=sys.stderr)
         return EXIT_VERSION
+    except hbk.InvalidVersionSpec as e:
+        print(f"{e}", file=sys.stderr)
+        return EXIT_USAGE
     except MissingCryptoDeps as e:
         print(f"{e}", file=sys.stderr)
         return 2
@@ -486,6 +509,13 @@ def main_entry() -> int:
     except FileNotFoundError as e:
         print(f"{e}", file=sys.stderr)
         return 2
+    except Exception:                                        # noqa: BLE001
+        # A bug or an unforeseen archive state. Exit 1 means "files failed their
+        # checksums" to scripts, so an unexpected error must not look like that.
+        import traceback
+        traceback.print_exc()
+        print("hbkit: unexpected error (exit 2) - please report it", file=sys.stderr)
+        return EXIT_USAGE
 
 
 if __name__ == "__main__":

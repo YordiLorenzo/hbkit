@@ -686,10 +686,14 @@ def test_unfinished_version_is_refused_unless_allowed(tmp_path):
     assert hbk.Archive(root, version="3", allow_incomplete=True).version == 3
 
 
-@pytest.mark.parametrize("spec", ["9", "0", "-1", "abc", "@not-a-date"])
-def test_missing_or_malformed_version_is_refused(tmp_path, spec):
+@pytest.mark.parametrize(("spec", "error"), [
+    ("9", hbk.VersionNotFound), ("0", hbk.VersionNotFound),
+    ("-1", hbk.InvalidVersionSpec), ("abc", hbk.InvalidVersionSpec),
+    ("@not-a-date", hbk.InvalidVersionSpec), ("@2025-02-30", hbk.InvalidVersionSpec),
+])
+def test_missing_or_malformed_version_is_refused(tmp_path, spec, error):
     root, _ = _three_versions(tmp_path)
-    with pytest.raises(hbk.VersionNotFound):
+    with pytest.raises(error):
         hbk.Archive(root, version=spec)
 
 
@@ -812,7 +816,7 @@ def test_get_by_date(tmp_path, args):
     assert (out / DB_ONE).read_bytes() == bodies[1]
 
 
-def test_get_resumes_within_a_version_and_restarts_across_versions(tmp_path):
+def test_get_resumes_within_a_version(tmp_path):
     root, bodies = _three_versions(tmp_path)
     out = tmp_path / "out"
     assert _hbk(tmp_path, root, "get", GLOB, out, "--version", "1").returncode == 0
@@ -1039,3 +1043,165 @@ def test_real_archive_default_restore_is_the_newest_complete_version(tmp_path):
     assert files
     for f in files:
         assert (tmp_path / "a" / f).read_bytes() == (tmp_path / "b" / f).read_bytes(), f
+
+
+# ------------------------------------------------------------- review round 1
+
+@pytest.fixture
+def warsaw(monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("needs time.tzset (POSIX)")
+    monkeypatch.setenv("TZ", "Europe/Warsaw")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize(("day", "last"), [
+    ("2026-03-29", "2026-03-29 23:59:59"),      # spring forward: a 23-hour day
+    ("2026-10-25", "2026-10-25 23:59:59"),      # fall back: a 25-hour day
+    ("2026-06-01", "2026-06-01 23:59:59"),
+])
+def test_a_bare_date_ends_at_local_midnight_even_on_dst_days(warsaw, day, last):
+    import datetime as dt
+    want = dt.datetime.strptime(last, "%Y-%m-%d %H:%M:%S").timestamp()
+    assert hbk.parse_moment(day) == want
+
+
+def test_a_corrupt_version_list_does_not_block_a_default_restore(tmp_path):
+    root, bodies = _three_versions(tmp_path)
+    with open(os.path.join(root, "Config", "version_info.db"), "wb") as fh:
+        fh.write(b"this is not a database" * 100)
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
+    r = _hbk(tmp_path, root, "versions")
+    assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+
+
+def test_allow_incomplete_alone_reads_the_newest_version_even_if_unfinished(tmp_path):
+    root, bodies = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out", "--allow-incomplete")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[2]
+
+
+def test_no_complete_version_is_exit_4_not_an_empty_archive(tmp_path):
+    from hbkit import doctor
+    root, bodies = _three_versions(tmp_path, statuses=("Backingup",) * 3)
+    for args in (["list"], ["get", GLOB, tmp_path / "out"], ["info"]):
+        r = _hbk(tmp_path, root, *args)
+        assert r.returncode == 4, (args, r.stdout + r.stderr)
+        assert "--allow-incomplete" in r.stderr, r.stderr
+    r = doctor.diagnose(root)
+    assert r.blockers and not r.ok
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out", "--allow-incomplete")
+    assert r.returncode == 0 and (tmp_path / "out" / DB_ONE).read_bytes() == bodies[2]
+
+
+def test_default_reads_one_version_for_every_share(tmp_path):
+    """A share dropped from the task must not be restored from an old version and
+    presented as the newest: the default is one version, exactly like --version N."""
+    import synth
+    pytest.importorskip("nacl.bindings")
+    root = synth.build(str(tmp_path / "arc"), [
+        synth.V({"d/a.txt": [b"a1" * 9]}, T0, shares=["A", "B"]),
+        synth.V({"d/a.txt": [b"a2" * 9]}, T0 + DAY, shares=["A"]),
+    ])
+    default = _hbk(tmp_path, root, "list", "/")
+    explicit = _hbk(tmp_path, root, "list", "/", "--version", "2")
+    assert default.returncode == explicit.returncode == 0
+    assert default.stdout == explicit.stdout
+    assert "/B/" not in default.stdout
+    assert "version 2" in default.stderr
+
+
+def test_default_and_explicit_newest_share_one_index(tmp_path, monkeypatch):
+    from hbkit import index as hbk_index
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    root, _ = _three_versions(tmp_path)
+    assert hbk_index.cache_path(hbk.Archive(root)) == \
+        hbk_index.cache_path(hbk.Archive(root, version=3))
+
+
+def test_a_rebuilt_index_replaces_the_stale_one_for_the_same_version(tmp_path, monkeypatch):
+    import sqlite3
+
+    from hbkit import index as hbk_index
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(hbk_index, "CACHE", str(cache))
+    root, _ = _three_versions(tmp_path)
+    keep = hbk_index.build(hbk.Archive(root, version=1))
+    old = hbk_index.build(hbk.Archive(root, version=2))
+    # a 0.4.7-era index of the same archive (no version in meta) and a foreign one
+    legacy = cache / "synth.hbk-0123456789abcdef.db"
+    foreign = cache / "synth.hbk-v2-fedcba9876543210.db"
+    for p, r in ((legacy, root), (foreign, "/some/other/synth.hbk")):
+        db = sqlite3.connect(p)
+        db.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)")
+        db.execute("INSERT INTO meta VALUES ('root', ?)", (r,))
+        db.commit()
+        db.close()
+    os.utime(os.path.join(root, "Config", "@Share", "db_staging", "2.db"), (1, 1))
+    new = hbk_index.build(hbk.Archive(root, version=2))
+    assert new != old and os.path.exists(new)
+    assert not os.path.exists(old), "stale index for the same version left behind"
+    assert not legacy.exists(), "pre-version index of this archive left behind"
+    assert os.path.exists(keep), "another version's index must survive"
+    assert foreign.exists(), "another archive's index must survive"
+
+
+@pytest.mark.parametrize("spec", ["@2026-13-01", "abc", "@yesterday", "1.5"])
+def test_a_malformed_selector_is_a_usage_error(tmp_path, spec):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "list", "--version", spec)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert spec in r.stderr
+
+
+@pytest.mark.parametrize("args", [
+    ["list", "--porcelain"],
+    ["get", GLOB, "OUT", "--porcelain"],
+    ["list", "--version", "1", "--version", "2"],
+    ["list", "--before", "2025-10-10", "--before", "2025-10-11"],
+])
+def test_options_that_would_be_ignored_are_refused(tmp_path, args):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, *[str(tmp_path / "out") if x == "OUT" else x for x in args])
+    assert r.returncode == 2, r.stdout + r.stderr
+
+
+def test_version_options_are_refused_by_mount_commands(tmp_path):
+    r = _hbk(tmp_path, "warm", tmp_path, "--version", "2")
+    assert r.returncode == 2 and "--version" in r.stderr
+
+
+def test_an_archive_opened_without_its_password_refuses_to_extract(tmp_path):
+    root, _ = _three_versions(tmp_path, encrypted=True)
+    arc = hbk.Archive(root, unlock=False)
+    with pytest.raises(hbk.NeedPassword):
+        arc.extract(64, 10)
+
+
+def test_tui_refuses_an_archive_with_no_complete_version(tmp_path, monkeypatch):
+    import asyncio
+
+    from hbkit import index as hbk_index
+    from hbkit import tui
+    monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    root, _ = _three_versions(tmp_path, statuses=("Backingup",) * 3)
+
+    class App(tui.HBKApp):
+        def on_mount(self):
+            self.push_screen(tui.ArchiveScreen(None))
+
+    async def probe():
+        app = App(1)
+        async with app.run_test() as pilot:
+            app.screen.probe(root)
+            await pilot.pause()
+            return app.screen._arc, str(app.screen.query_one("#probe", tui.Static).render())
+
+    arc, text = asyncio.run(probe())
+    assert arc is None and "no complete backup version" in text

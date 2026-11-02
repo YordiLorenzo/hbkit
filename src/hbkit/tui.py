@@ -332,16 +332,20 @@ class ArchiveScreen(Screen):
             lines.append(f"  task    {cfg['name']}   host {cfg.get('host_name','?')}\n", style="dim")
         lines.append(f"  shares  {', '.join(arc.shares()) or '(none)'}\n", style="dim")
         try:
+            vid = arc.selected_version()
+        except hbk.VersionNotFound as e:
+            w.update(Text(str(e), style="red"))
+            self._arc = None
+            return
+        if vid is not None:
             vs = {v.id: v for v in arc.versions()}
-            vid = arc.version if arc.version is not None else arc.resolve_version(None)
             v = vs.get(vid)
             stamp = "" if v is None or v.timestamp is None else " " + time.strftime(
                 "%Y-%m-%d %H:%M", time.localtime(v.timestamp))
             lines.append(f"  version {vid}{stamp}"
-                         + ("" if arc.version is not None else " (newest complete)")
+                         + ("" if arc.version is not None else
+                            " (newest)" if arc.allow_incomplete else " (newest complete)")
                          + f" of {len(vs)}\n", style="dim")
-        except (hbk.UnsupportedArchive, hbk.VersionNotFound):
-            pass
         comp = {"0": "none", "1": "lz4", "2": "lz4-hc", "4": "zlib"}.get(
             cfg.get("data_compress_type", ""), cfg.get("data_compress_type", "?"))
         lines.append(f"  codec   {comp}", style="dim")
