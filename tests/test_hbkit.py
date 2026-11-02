@@ -838,6 +838,25 @@ def test_list_accepts_the_same_glob_as_get(tmp_path):
     assert r.returncode == 0 and "2 files" in r.stdout, r.stdout + r.stderr
 
 
+def test_resume_never_keeps_a_same_sized_file_from_another_version(tmp_path):
+    """Database dumps often keep their size between nights. Restoring version 2 into a
+    directory holding version 1 must not skip a file just because its size matches."""
+    import synth
+    pytest.importorskip("nacl.bindings")
+    a, b = b"A" * 4096, b"B" * 4096
+    root = synth.build(str(tmp_path / "arc"), [synth.V({"firebird/x.bak": [a]}, T0),
+                                               synth.V({"firebird/x.bak": [b]}, T0 + DAY)])
+    out = tmp_path / "out"
+    glob = "/db_staging/firebird/*"
+    assert _hbk(tmp_path, root, "get", glob, out, "--version", "1").returncode == 0
+    assert (out / "db_staging/firebird/x.bak").read_bytes() == a
+    r = _hbk(tmp_path, root, "get", glob, out, "--version", "2")
+    assert r.returncode == 0 and "1 extracted" in r.stdout, r.stdout + r.stderr
+    assert (out / "db_staging/firebird/x.bak").read_bytes() == b
+    r = _hbk(tmp_path, root, "get", glob, out, "--version", "2")
+    assert "1 already present" in r.stdout, r.stdout     # same version still resumes
+
+
 @needs_tz
 def test_versions_porcelain_is_one_tab_separated_line_per_version(tmp_path):
     root, _ = _three_versions(tmp_path, statuses=("Complete", "Complete", "Backingup"))
