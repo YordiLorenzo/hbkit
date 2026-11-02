@@ -106,7 +106,9 @@ Hyper Backup keeps many versions of the same data. `list`, `get`, `verify`, `inf
 
 Dates are in the local time of the machine running `hbk` (set `TZ` to change it); a bare
 date runs to local midnight (also on daylight-saving days), a minute to :59, a time with
-seconds is exact. A version counts as complete only if Hyper Backup recorded its status
+seconds is exact. A clock time that does not exist on a spring-forward night is read as
+the hour after; one that occurs twice in autumn means its first occurrence. A version
+counts as complete only if Hyper Backup recorded its status
 as `Complete`; an unfinished one is refused unless you pass `--allow-incomplete`, which
 on its own reads the newest version whether or not it finished. If no version is
 complete, commands exit with code 4 rather than showing an empty archive.
@@ -146,7 +148,10 @@ Scripts can rely on these:
 | 130 | interrupted (Ctrl-C) |
 
 `doctor` has its own simple contract: 0 when the archive is recoverable, 1 otherwise, with
-the reason in its report.
+the reason in its report. Any argument or option a command would ignore — a second
+`--version`, `--strict` outside `get`, a stray word after the destination (an unquoted
+path with a space) — is refused with code 2 rather than silently dropped. `--version`
+on its own prints hbkit's version; followed by anything it selects a backup version.
 
 **Start with `doctor`.** It reports the layout it found and then *proves* the archive is
 readable by rebuilding a random sample of real files with full checksum verification:
