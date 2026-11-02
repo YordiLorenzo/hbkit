@@ -978,6 +978,9 @@ def test_tui_opens_the_selected_version(tmp_path, monkeypatch):
 
 MULTI = os.environ.get("HBK_TEST_MULTI_ARCHIVE", "")
 MULTI_PW = os.environ.get("HBK_TEST_MULTI_PASSWORD", "") or None
+# Narrow this to user data if the archive holds files hbkit cannot decode at all, such as
+# whole-file-dedup entries (Hyper Backup's own @AppConfig/config.dss is one).
+MULTI_GLOB = os.environ.get("HBK_TEST_MULTI_GLOB", "/*")
 needs_multi = pytest.mark.skipif(not (MULTI and os.path.exists(MULTI)),
                                  reason="set HBK_TEST_MULTI_ARCHIVE (and "
                                         "HBK_TEST_MULTI_PASSWORD if it is encrypted)")
@@ -999,7 +1002,7 @@ def test_real_archive_every_complete_version_verifies(tmp_path):
     arc = hbk.Archive(MULTI, unlock=False)
     done = [v.id for v in arc.versions() if v.complete]
     for vid in sorted({done[0], done[-1]}):
-        r = _hbk(tmp_path, MULTI, "verify", "/*", "--version", vid, password=MULTI_PW)
+        r = _hbk(tmp_path, MULTI, "verify", MULTI_GLOB, "--version", vid, password=MULTI_PW)
         assert r.returncode == 0, f"version {vid}: {r.stdout[-2000:]}{r.stderr[-2000:]}"
 
 
@@ -1021,3 +1024,18 @@ def test_unknown_version_info_layout_blocks_only_what_needs_it(tmp_path):
     r = _hbk(tmp_path, root, "versions")
     assert r.returncode == 2 and "unknown layout" in r.stderr
     assert _hbk(tmp_path, root, "list", "--version", "@2025-10-10").returncode == 2
+
+
+@needs_multi
+def test_real_archive_default_restore_is_the_newest_complete_version(tmp_path):
+    arc = hbk.Archive(MULTI, unlock=False)
+    newest = [v.id for v in arc.versions() if v.complete][-1]
+    a = _hbk(tmp_path, MULTI, "get", MULTI_GLOB, tmp_path / "a", password=MULTI_PW)
+    b = _hbk(tmp_path, MULTI, "get", MULTI_GLOB, tmp_path / "b", "--version", newest,
+             password=MULTI_PW)
+    assert a.returncode == b.returncode == 0, a.stdout + a.stderr + b.stdout + b.stderr
+    files = sorted(p.relative_to(tmp_path / "a") for p in (tmp_path / "a").rglob("*")
+                   if p.is_file() and p.name != ".hbkit-restore.jsonl")
+    assert files
+    for f in files:
+        assert (tmp_path / "a" / f).read_bytes() == (tmp_path / "b" / f).read_bytes(), f

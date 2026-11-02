@@ -297,6 +297,10 @@ Read this before trusting it with the only copy of anything.
   archive (unencrypted, LZ4, single version, single pool) and a small encrypted one from
   the same DSM version, both verified byte-exact, plus a 7-version encrypted archive from
   Hyper Backup 4.2.2 reported in [#4](https://github.com/YordiLorenzo/hbkit/issues/4).
+  Version selection was checked byte-exact on a small two-version encrypted Hyper Backup
+  4.2.2 archive (each version's copy of a changed file, by number and by date), and on
+  synthetic archives; the version list comes from `Config/version_info.db`, whose layout
+  is checked before use.
   Older record layouts (16-byte `chunk_index`, 28-byte bucket records) and zlib chunks
   are implemented from disassembly but have not met a real archive of that kind. `doctor`
   exists precisely so you can find out in seconds rather than mid-restore.
