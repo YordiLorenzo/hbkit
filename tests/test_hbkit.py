@@ -972,3 +972,32 @@ def test_tui_opens_the_selected_version(tmp_path, monkeypatch):
     arc, text = asyncio.run(probe())
     assert arc is not None and arc.version == 1
     assert "version 1" in text
+
+
+# ----------------------------------------- a real multi-version archive (opt-in, read-only)
+
+MULTI = os.environ.get("HBK_TEST_MULTI_ARCHIVE", "")
+MULTI_PW = os.environ.get("HBK_TEST_MULTI_PASSWORD", "") or None
+needs_multi = pytest.mark.skipif(not (MULTI and os.path.exists(MULTI)),
+                                 reason="set HBK_TEST_MULTI_ARCHIVE (and "
+                                        "HBK_TEST_MULTI_PASSWORD if it is encrypted)")
+
+
+@needs_multi
+def test_real_archive_lists_versions_without_a_password():
+    arc = hbk.Archive(MULTI, unlock=False)
+    vs = arc.versions()
+    assert len(vs) >= 2, "point HBK_TEST_MULTI_ARCHIVE at an archive with several versions"
+    assert all(v.timestamp for v in vs) and any(v.complete for v in vs)
+    assert [v.id for v in vs] == sorted(v.id for v in vs)
+
+
+@needs_multi
+def test_real_archive_every_complete_version_verifies(tmp_path):
+    """Rebuilds every file of the oldest and the newest complete version with full
+    checksum checks. Reads only; writes nothing but the index cache in tmp_path."""
+    arc = hbk.Archive(MULTI, unlock=False)
+    done = [v.id for v in arc.versions() if v.complete]
+    for vid in sorted({done[0], done[-1]}):
+        r = _hbk(tmp_path, MULTI, "verify", "/*", "--version", vid, password=MULTI_PW)
+        assert r.returncode == 0, f"version {vid}: {r.stdout[-2000:]}{r.stderr[-2000:]}"
