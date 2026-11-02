@@ -231,7 +231,45 @@ Reconstruct paths by joining `pname_id_v2 -> name_id_v2`. Roots are rows whose p
 absent from the table or which are self-parented. `mode` is a POSIX mode word — use
 `S_ISDIR` to separate directories from files.
 
-`Config/version_info.db` lists backup versions with timestamps and completion status.
+### 5.1 Backup versions [V for the columns below, I for their meaning]
+
+Each backup run is a **version** with an integer id (1, 2, 3, …). A version writes one
+`Config/@Share/<share>/<id>.db` per share it covered. Everything else — `virtual_file`,
+`file_chunk`, `chunk_index`, the buckets — is shared by all versions, so the same file in
+two versions differs only in its `version_list` row (`size`, `mtime_sec`,
+`off_virtual_file`). Reading an older version means reading an older `<id>.db`; nothing
+below the share databases changes.
+
+`Config/version_info.db`, observed on Hyper Backup 4.2.2-4262 (DSM 7, two versions):
+
+```sql
+CREATE TABLE version_info (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,  -- the version id, as in <id>.db
+  timestamp INTEGER,                     -- unix seconds, when the version started
+  name TEXT, source TEXT,                -- source is encrypted on encrypted archives
+  share TEXT,                            -- "share1,share2," - shares in this version
+  status TEXT,                           -- 'Complete' for a finished version
+  statistics TEXT,                       -- JSON: sizes and per-kind counts
+  diff_size INTEGER, locked INTEGER NOT NULL default 0, share_info BLOB,
+  missing_src TEXT, tag_db_magic BLOB, tag_db_file_size_thr INTEGER,
+  has_suspend_dup INTEGER DEFAULT 0, bad_share TEXT DEFAULT '',
+  internal_share TEXT DEFAULT '',
+  suspend_history TEXT DEFAULT '',       -- JSON events: create, complete, ...
+  enc_cksum BLOB DEFAULT NULL, depose_time INTEGER DEFAULT -1);
+```
+
+Only `id`, `timestamp` and `status` are relied on. `'Complete'` is the only status value
+seen so far; hbkit treats **any other value as not complete** rather than guessing what
+it means. `timestamp` matched the `create` event in `suspend_history`. [V]
+
+`Config/@Share/<share>/complete_list.db` holds `complete_list(version_id INTEGER PRIMARY
+KEY)`. It is **not** a reliable completion record: on the same archive the `@AppConfig`
+share's list was empty although both versions were `Complete` in `version_info`, while
+the data share listed both. hbkit does not use it. [V for the observation, ? for meaning]
+
+The same archive also showed `Pool/vkey.db` with one row per version (`version_id` 1, 2),
+and index shards with a `_dup` sibling (`0.idx_dup`) instead of a generation suffix; the
+`_dup` copies are ignored.
 
 Entries named `@eaDir`, or ending `@SynoEAStream` / `@SynoResource`, are Synology
 metadata — thumbnails, extended attributes, resource forks — not user data. In the
