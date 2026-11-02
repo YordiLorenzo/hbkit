@@ -261,11 +261,11 @@ def cmd_versions(archive, porcelain: bool) -> int:
                   f"\t{v.status or '-'}")
         return EXIT_OK
     shares = {s: set(arc.share_versions(s)) for s in arc.shares()}
-    print(f"  {'version':>7}  {'started (local time)':<19}  {'status':<10}  shares")
+    print(f"  {'version':>7}  {'started (local time)':<20}  {'status':<10}  shares")
     for v in vs:
         mark = "  <- default" if v.id == default else ""
         here = ",".join(s for s, have in shares.items() if v.id in have) or "-"
-        print(f"  {v.id:>7}  {when(v.timestamp):<20} {(v.status or '?'):<10}  {here}{mark}")
+        print(f"  {v.id:>7}  {when(v.timestamp):<20}  {(v.status or '?'):<10}  {here}{mark}")
     return EXIT_OK
 
 
