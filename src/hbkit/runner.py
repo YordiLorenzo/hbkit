@@ -79,6 +79,8 @@ def worker_main(job_path: str) -> int:
             with open(tmp, "wb") as fh:
                 arc.extract(ovf, size, verify=verify, out=_Tee(fh),
                             on_bytes=lambda n: emit(k="P", b=n))
+            if rel in known:               # the old record must not outlive its bytes
+                mf.void(dest, rel)
             os.replace(tmp, target)
             if mtime:
                 os.utime(target, (mtime, mtime))

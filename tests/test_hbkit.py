@@ -1010,10 +1010,9 @@ def test_real_archive_every_complete_version_verifies(tmp_path):
         assert r.returncode == 0, f"version {vid}: {r.stdout[-2000:]}{r.stderr[-2000:]}"
 
 
-def test_unknown_version_info_layout_blocks_only_what_needs_it(tmp_path):
-    """A version_info.db hbkit does not understand must not stop a plain restore of the
-    newest version, which never needed it - only version selection by date, and the
-    version listing itself, are refused."""
+def test_unknown_version_info_layout_is_refused_unless_incomplete_is_allowed(tmp_path):
+    """A version_info.db hbkit does not understand cannot say which versions finished:
+    refused by default, readable with --allow-incomplete; dates stay refused."""
     import sqlite3
     root, bodies = _three_versions(tmp_path)
     p = os.path.join(root, "Config", "version_info.db")
@@ -1022,7 +1021,8 @@ def test_unknown_version_info_layout_blocks_only_what_needs_it(tmp_path):
     db.execute("CREATE TABLE version_info (vid INTEGER, started INTEGER)")
     db.commit()
     db.close()
-    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out")
+    assert _hbk(tmp_path, root, "get", GLOB, tmp_path / "out").returncode == 2
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out", "--allow-incomplete")
     assert r.returncode == 0, r.stdout + r.stderr
     assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
     r = _hbk(tmp_path, root, "versions")
@@ -1069,12 +1069,19 @@ def test_a_bare_date_ends_at_local_midnight_even_on_dst_days(warsaw, day, last):
     assert hbk.parse_moment(day) == want
 
 
-def test_a_corrupt_version_list_does_not_block_a_default_restore(tmp_path):
-    root, bodies = _three_versions(tmp_path)
+def test_a_corrupt_version_list_refuses_the_default_unless_allowed(tmp_path):
+    """With the version list unreadable, hbkit cannot tell finished backups from one
+    still being written (or torn mid-read), so the default refuses rather than guess;
+    --allow-incomplete reads the newest file lists, with an accurate warning."""
+    root, bodies = _three_versions(tmp_path, statuses=("Complete", "Complete", "Partial"))
     with open(os.path.join(root, "Config", "version_info.db"), "wb") as fh:
         fh.write(b"this is not a database" * 100)
     r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out")
+    assert r.returncode == 2 and "--allow-incomplete" in r.stderr, r.stdout + r.stderr
+    assert "Traceback" not in r.stderr
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out", "--allow-incomplete")
     assert r.returncode == 0, r.stdout + r.stderr
+    assert "completion" in r.stderr and "does not record" not in r.stderr, r.stderr
     assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
     r = _hbk(tmp_path, root, "versions")
     assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
@@ -1352,3 +1359,78 @@ def test_a_closed_pipe_is_not_an_internal_error(tmp_path):
                        'exit ${PIPESTATUS[0]}', shell=True, executable="/bin/bash",
                        capture_output=True, text=True, env=env)
     assert "Traceback" not in p.stderr and "please report" not in p.stderr, p.stderr
+
+
+# ------------------------------------------------------------- review round 3
+
+def test_a_file_restored_by_an_older_hbkit_is_extracted_again(tmp_path):
+    """A pre-version manifest record has an MD5 but no source offset: it cannot say which
+    version the file came from, so neither plain nor --strict resume may keep it."""
+    import json
+    import synth
+    pytest.importorskip("nacl.bindings")
+    a, b = b"A" * 4096, b"B" * 4096
+    root = synth.build(str(tmp_path / "arc"), [synth.V({"firebird/x.bak": [a]}, T0),
+                                               synth.V({"firebird/x.bak": [b]}, T0 + DAY)])
+    out = tmp_path / "out"
+    glob = "/db_staging/firebird/*"
+    assert _hbk(tmp_path, root, "get", glob, out, "--version", "2").returncode == 0
+    man = out / ".hbkit-restore.jsonl"
+    recs = [json.loads(x) for x in man.read_text().splitlines()]
+    man.write_text("".join(json.dumps({k: v for k, v in r.items() if k != "o"}) + "\n"
+                           for r in recs))                   # as 0.4.7 wrote it
+    for extra in ([], ["--strict"]):
+        r = _hbk(tmp_path, root, "get", glob, out, "--version", "1", *extra)
+        assert r.returncode == 0 and "1 extracted" in r.stdout, (extra, r.stdout)
+        assert (out / "db_staging/firebird/x.bak").read_bytes() == a
+        man.write_text("".join(json.dumps({k: v for k, v in r.items() if k != "o"}) + "\n"
+                               for r in recs))
+
+
+def test_replacing_a_file_from_another_version_marks_it_first(tmp_path):
+    """Between the rename and the new record, the old record (another version's source)
+    must already be void, so a run killed in that window cannot vouch for new bytes."""
+    from hbkit import manifest as mf
+    d = str(tmp_path)
+    mf.append(d, "x", 4, "aa" * 16, ovf=64)
+    mf.void(d, "x")
+    (tmp_path / "x").write_bytes(b"BBBB")
+    known = mf.load(d)
+    assert not mf.is_complete(d, "x", 4, known, ovf=64)
+    assert not mf.is_complete(d, "x", 4, known, ovf=128)
+
+
+def test_double_dash_ends_options(tmp_path):
+    import synth
+    pytest.importorskip("nacl.bindings")
+    root = synth.build(str(tmp_path / "arc"), [synth.V({"d/-odd name.txt": [b"x" * 9]}, T0)])
+    r = _hbk(tmp_path, root, "list", "--", "-odd")
+    assert r.returncode == 0 and "-odd name.txt" in r.stdout, r.stdout + r.stderr
+    r = _hbk(tmp_path, root, "list", "-odd")
+    assert r.returncode == 2
+
+
+@pytest.mark.parametrize(("spec", "code"), [("1x", 2), ("9", 4)])
+def test_doctor_reports_a_bad_selector_as_such(tmp_path, spec, code):
+    root, _ = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "doctor", "--version", spec)
+    assert r.returncode == code, r.stdout + r.stderr
+    assert "cannot be recovered" not in r.stdout
+
+
+def test_before_accepts_a_leading_at(tmp_path):
+    root, bodies = _three_versions(tmp_path)
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out", "--before", "@2025-10-10")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[1]
+
+
+def test_help_is_not_an_error(tmp_path):
+    for flag in ("-h", "--help"):
+        r = _hbk(tmp_path, flag)
+        assert r.returncode == 0 and "Synology Hyper Backup" in r.stdout
+
+
+def test_the_version_number_signals_the_new_behaviour():
+    major, minor = (int(x) for x in hbkit.__version__.split(".")[:2])
+    assert (major, minor) >= (0, 5)

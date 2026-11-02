@@ -133,7 +133,7 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
         r.warnings.append(f"cannot read backup versions: {e}")
     try:
         vid = arc.selected_version()
-    except hbk.VersionNotFound as e:
+    except (hbk.VersionNotFound, hbk.UnsupportedArchive) as e:
         r.blockers.append(f"version: {e}")
         arc.close()
         return r

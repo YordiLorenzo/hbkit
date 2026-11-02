@@ -67,6 +67,14 @@ def append(dest: str, rel: str, size: int, md5: str, ovf: int | None = None) -> 
         fh.flush()
 
 
+def void(dest: str, rel: str) -> None:
+    """Record that `rel` is about to be replaced. Until the replacement's own record is
+    appended, no earlier record - perhaps another version's - can vouch for the file."""
+    with open(path_for(dest), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"p": rel, "void": 1}) + "\n")
+        fh.flush()
+
+
 def file_md5(path: str, chunk: int = 1 << 20) -> str:
     h = hashlib.md5()
     with open(path, "rb") as fh:
@@ -82,8 +90,10 @@ def is_complete(dest: str, rel: str, size: int, known: dict, verify: bool = Fals
                 ovf: int | None = None) -> bool:
     """Has `rel` already been restored correctly?
 
-    A file the manifest records as restored from a different source (`ovf`, so another
-    backup version) is never complete. Size is checked always. With `verify`, the
+    When the caller names the source (`ovf`), a record must name the same one: a record
+    from another source (another backup version), or one that names none (written by
+    hbkit before 0.5, or voided mid-replacement), never vouches for the file, even under
+    `verify` - the MD5 it carries describes what was written, not which version. Size is checked always. With `verify`, the
     recorded MD5 is checked too, which catches a file that is the right length but the
     wrong content - the one case plain size comparison cannot see.
     """
@@ -94,7 +104,7 @@ def is_complete(dest: str, rel: str, size: int, known: dict, verify: bool = Fals
     except OSError:
         return False
     rec = known.get(rel)
-    if ovf is not None and rec and rec.get("o") is not None and rec["o"] != ovf:
+    if ovf is not None and rec and rec.get("o") != ovf:
         return False
     if not verify:
         return True

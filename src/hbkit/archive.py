@@ -516,10 +516,12 @@ class Archive:
         """The one version every share is read from: the explicit choice, else the
         newest complete version (any newest one with `allow_incomplete`).
 
-        None only when the archive cannot say - no version_info.db, or one hbkit does not
-        understand - in which case each share falls back to its own newest database, as
-        before versions were supported. Raises VersionNotFound when versions are known
-        but none qualifies.
+        None when the archive has no version_info.db, or - only with `allow_incomplete`
+        - has one hbkit cannot read: each share then falls back to its own newest
+        database, as before versions were supported. Without `allow_incomplete` an
+        unreadable version list raises UnsupportedArchive, because nothing then tells a
+        finished backup from one still being written. Raises VersionNotFound when
+        versions are known but none qualifies.
         """
         if self.version is not None:
             return self.version
@@ -528,7 +530,12 @@ class Archive:
         if self._selected is None:
             try:
                 vs = self.versions()
-            except UnsupportedArchive:
+            except UnsupportedArchive as e:
+                if not self.allow_incomplete:
+                    raise UnsupportedArchive(
+                        f"{e}; cannot tell finished backup versions from unfinished ones - "
+                        "pass --allow-incomplete to read the newest file list of each "
+                        "share anyway") from None
                 vs = []
             if not vs or all(v.status is None for v in vs):
                 self._selected = (None,)

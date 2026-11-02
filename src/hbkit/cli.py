@@ -156,11 +156,12 @@ def when(ts) -> str:
 
 def describe_version(arc) -> str:
     """One line naming the version being read, for stderr."""
+    vid = arc.selected_version()
     try:
-        vid = arc.selected_version()
         vs = {v.id: v for v in arc.versions()}
     except hbk.UnsupportedArchive:
-        vid = None
+        return ("version list unreadable: reading the newest file list of each share; "
+                "completion NOT checked (--allow-incomplete)")
     if vid is None:
         return "reading the newest version of each share (the archive does not record versions)"
     v = vs.get(vid)
@@ -175,14 +176,18 @@ def open_index(archive, password=None, version=None, allow_incomplete=False):
     arc = open_archive(archive, password, version, allow_incomplete)
     try:
         several = len(arc.versions()) > 1
-    except hbk.UnsupportedArchive:      # unreadable version list: the newest is still fine
+    except hbk.UnsupportedArchive:      # only reachable with --allow-incomplete
         several = True
     if several or arc.version is not None:
         print(describe_version(arc), file=sys.stderr)
+    path = hbk_index.cache_path(arc)
     if not hbk_index.is_current(arc):
         print("indexing archive (first use only)...", file=sys.stderr)
-        hbk_index.build(arc, progress=lambda s, d, n: print(f"  {s} [{d}/{n}]", file=sys.stderr))
-    return arc, sqlite3.connect(f"file:{hbk_index.cache_path(arc)}?mode=ro", uri=True)
+        # open what was built: recomputing the path re-stats share databases, which a
+        # backup still running (--allow-incomplete) may have changed in between
+        path = hbk_index.build(
+            arc, progress=lambda s, d, n: print(f"  {s} [{d}/{n}]", file=sys.stderr))
+    return arc, sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
 def run(arc, sel, dest, jobs, check, password=None, strict=False):
@@ -296,11 +301,19 @@ def cmd_versions(archive, porcelain: bool) -> int:
 
 def main() -> int:
     a = sys.argv[1:]
+    if a in (["-h"], ["--help"]):
+        print(__doc__)
+        return EXIT_OK
     # alone, --version is hbkit's own version; with arguments it selects a backup version
     if a in (["--version"], ["-V"]):
         from . import __version__
         print(f"hbkit {__version__}")
         return 0
+    # `--` ends the options: what follows is positional even if it starts with "-"
+    literal: list[str] = []
+    if "--" in a:
+        i = a.index("--")
+        a, literal = a[:i], a[i + 1:]
     try:
         jobs = 8
         j = pop_option(a, "-j")
@@ -317,12 +330,14 @@ def main() -> int:
         if version is not None and before is not None:
             raise UsageError("use either --version or --before, not both")
         if before is not None:
-            version = "@" + before
+            version = "@" + before.removeprefix("@")
         allow_incomplete = pop_flag(a, "--allow-incomplete")
         porcelain = pop_flag(a, "--porcelain")
     except UsageError as e:
         print(e, file=sys.stderr)
         return EXIT_USAGE
+    n_flagged = len(a)                  # positions where a "-" word is an option
+    a += literal
     if len(a) < 2 and (not a or a[0] != "remotes"):
         print(__doc__)
         return EXIT_USAGE
@@ -378,8 +393,9 @@ def main() -> int:
     if cmd in MAX_ARGS:
         # globs and patterns are archive paths or words, so a leading "-" is a stray option
         hi = MAX_ARGS[cmd]
-        if any(x.startswith("-") for x in a[2:]):
-            print(f"unknown option {next(x for x in a[2:] if x.startswith('-'))}",
+        stray = [x for x in a[2:n_flagged] if x.startswith("-")]
+        if stray:
+            print(f"unknown option {stray[0]} (put `--` before a pattern starting with -)",
                   file=sys.stderr)
             return EXIT_USAGE
         if len(a) > hi:
@@ -420,6 +436,9 @@ def main() -> int:
         if sample is not None:
             kw["sample"] = sample
         if version is not None or allow_incomplete:
+            # a typo or a missing version is not an unrecoverable archive: say so plainly
+            if version is not None:
+                hbk.Archive(archive, unlock=False).resolve_version(version, allow_incomplete)
             kw["version"], kw["allow_incomplete"] = version, allow_incomplete
         r = doctor.diagnose(archive, **kw)
         print(doctor.render(r))

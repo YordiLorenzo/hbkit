@@ -333,7 +333,7 @@ class ArchiveScreen(Screen):
         lines.append(f"  shares  {', '.join(arc.shares()) or '(none)'}\n", style="dim")
         try:
             vid = arc.selected_version()
-        except hbk.VersionNotFound as e:
+        except (hbk.VersionNotFound, hbk.UnsupportedArchive) as e:
             w.update(Text(str(e), style="red"))
             self._arc = None
             return
