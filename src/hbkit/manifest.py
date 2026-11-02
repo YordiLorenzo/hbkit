@@ -93,9 +93,11 @@ def is_complete(dest: str, rel: str, size: int, known: dict, verify: bool = Fals
     When the caller names the source (`ovf`), a record must name the same one: a record
     from another source (another backup version), or one that names none (written by
     hbkit before 0.5, or voided mid-replacement), never vouches for the file, even under
-    `verify` - the MD5 it carries describes what was written, not which version. Size is checked always. With `verify`, the
-    recorded MD5 is checked too, which catches a file that is the right length but the
-    wrong content - the one case plain size comparison cannot see.
+    `verify` - the MD5 it carries describes what was written, not which version.
+
+    Size is checked always. With `verify`, the recorded MD5 is checked too, which catches
+    a file that is the right length but the wrong content - the one case plain size
+    comparison cannot see.
     """
     target = os.path.join(dest, rel)
     try:
