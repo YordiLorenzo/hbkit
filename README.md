@@ -117,8 +117,9 @@ Every share is read from the **same** version, so the default and `--version N` 
 newest complete `N` give identical results; a share that was not part of that version is
 absent rather than silently taken from an older one. Archives without
 `Config/version_info.db` fall back to the newest database of each share. If the file is
-there but cannot be read (damaged, an unknown layout, or caught mid-write), hbkit cannot
-tell finished versions from unfinished ones, so it refuses (code 2) unless you pass
+there but cannot be read (damaged, an unknown layout, caught mid-write, or with no
+versions in it), hbkit cannot tell finished versions from unfinished ones, so it refuses
+(code 2) unless you pass
 `--allow-incomplete`, which then reads the newest file list of each share and says that
 completion was not checked. Whenever there is a choice, the version being read is
 printed on stderr.
@@ -150,6 +151,7 @@ Scripts can rely on these:
 | 5 | the glob (`get`, `verify`) or pattern (`list`) matched no file |
 | 6 | the destination does not have enough free space (`get`) |
 | 130 | interrupted (Ctrl-C) |
+| 141 | `get` or `verify` stopped because its output pipe closed (`… \| head`); the outcome is unknown. `list`, `versions` and `info` exit 0 then |
 
 `doctor` has its own simple contract: 0 when the archive is recoverable, 1 otherwise, with
 the reason in its report. Any argument or option a command would ignore — a second

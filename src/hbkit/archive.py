@@ -436,7 +436,7 @@ class Archive:
         Read from Config/version_info.db (plain SQLite even on encrypted archives). An
         archive without that file falls back to the version numbers of the share
         databases, with no dates and no completion status. A version_info.db without the
-        columns hbkit relies on is refused rather than guessed at.
+        columns hbkit relies on, or without any rows, is refused rather than guessed at.
         """
         import sqlite3
 
@@ -458,6 +458,8 @@ class Archive:
                 db.close()
         except sqlite3.Error as e:
             raise UnsupportedArchive(f"{p}: unreadable ({e})") from None
+        if not rows:            # e.g. a first backup that never finished: nothing to trust
+            raise UnsupportedArchive(f"{p}: the version_info table has no rows")
         return [Version(int(i), None if t is None else int(t), "" if s is None else str(s))
                 for i, t, s in rows]
 

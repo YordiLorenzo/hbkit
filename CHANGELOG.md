@@ -30,6 +30,8 @@ Exit codes are now distinct and documented (README, "Exit codes"):
 | interrupted `get`/`verify` | 0 or 1 | 130 |
 | unexpected internal error | 1 | 2 |
 | requested version missing / not complete | — | 4 |
+| output pipe closed (`… \| head`), `list`/`versions`/`info` | 1 (traceback) | 0 |
+| output pipe closed, `get`/`verify` | 1 (traceback) | 141 |
 
 Arguments and options a command used to ignore are refused with code 2: a stray word
 after the destination (an unquoted path with a space), `--strict` outside `get`, `-j` on

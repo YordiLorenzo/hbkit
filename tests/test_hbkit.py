@@ -635,15 +635,21 @@ T0 = 1_760_000_000          # 2025-10-09 08:53:20 UTC; versions below are a day 
 DAY = 86_400
 
 
-def _three_versions(tmp_path, encrypted=False, statuses=("Complete",) * 3, **kw):
-    """The same file in three versions, with different bytes in each. Version 2 and 3
-    reuse chunks written by earlier versions, as Hyper Backup's dedup does."""
+def _synth():
+    """The synthetic-archive builder, or a skip: it compresses with liblz4."""
     import synth
     pytest.importorskip("nacl.bindings")
     try:
         hbk.lz4()
     except RuntimeError:
         pytest.skip("liblz4 not available")
+    return synth
+
+
+def _three_versions(tmp_path, encrypted=False, statuses=("Complete",) * 3, **kw):
+    """The same file in three versions, with different bytes in each. Version 2 and 3
+    reuse chunks written by earlier versions, as Hyper Backup's dedup does."""
+    synth = _synth()
     head, mid = b"H" * 3000 + os.urandom(1000), os.urandom(5000)
     bodies = [[head, os.urandom(4096)],
               [head, mid, os.urandom(2048)],
@@ -779,7 +785,7 @@ def _hbk(tmp_path, *args, password=None):
     if password:
         env["HBK_PASSWORD"] = password
     return subprocess.run([sys.executable, "-m", "hbkit.cli", *map(str, args)],
-                          capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+                          capture_output=True, text=True, env=env, input="")
 
 
 GLOB = "/db_staging/firebird/*.gbk"
@@ -845,8 +851,7 @@ def test_list_accepts_the_same_glob_as_get(tmp_path):
 def test_resume_never_keeps_a_same_sized_file_from_another_version(tmp_path):
     """Database dumps often keep their size between nights. Restoring version 2 into a
     directory holding version 1 must not skip a file just because its size matches."""
-    import synth
-    pytest.importorskip("nacl.bindings")
+    synth = _synth()
     a, b = b"A" * 4096, b"B" * 4096
     root = synth.build(str(tmp_path / "arc"), [synth.V({"firebird/x.bak": [a]}, T0),
                                                synth.V({"firebird/x.bak": [b]}, T0 + DAY)])
@@ -1113,8 +1118,7 @@ def test_no_complete_version_is_exit_4_not_an_empty_archive(tmp_path):
 def test_default_reads_one_version_for_every_share(tmp_path):
     """A share dropped from the task must not be restored from an old version and
     presented as the newest: the default is one version, exactly like --version N."""
-    import synth
-    pytest.importorskip("nacl.bindings")
+    synth = _synth()
     root = synth.build(str(tmp_path / "arc"), [
         synth.V({"d/a.txt": [b"a1" * 9]}, T0, shares=["A", "B"]),
         synth.V({"d/a.txt": [b"a2" * 9]}, T0 + DAY, shares=["A"]),
@@ -1226,8 +1230,7 @@ def test_the_default_version_is_fixed_for_the_life_of_an_archive_object(tmp_path
 
     from hbkit import index as hbk_index
     monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
-    import synth
-    pytest.importorskip("nacl.bindings")
+    synth = _synth()
     root = synth.build(str(tmp_path / "arc"), [
         synth.V({"d/a.txt": [b"v1" * 9]}, T0, shares=["A", "B"]),
         synth.V({"d/a.txt": [b"v2" * 9]}, T0 + DAY, "Backingup", shares=["A", "B"]),
@@ -1355,6 +1358,7 @@ def test_unusual_digits_are_a_usage_error(tmp_path):
     assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs bash; see the in-process pipe test")
 def test_a_closed_pipe_is_not_an_internal_error(tmp_path):
     root, _ = _three_versions(tmp_path)
     env = {**os.environ, "HBK_CACHE": str(tmp_path / "cache")}
@@ -1370,8 +1374,7 @@ def test_a_file_restored_by_an_older_hbkit_is_extracted_again(tmp_path):
     """A pre-version manifest record has an MD5 but no source offset: it cannot say which
     version the file came from, so neither plain nor --strict resume may keep it."""
     import json
-    import synth
-    pytest.importorskip("nacl.bindings")
+    synth = _synth()
     a, b = b"A" * 4096, b"B" * 4096
     root = synth.build(str(tmp_path / "arc"), [synth.V({"firebird/x.bak": [a]}, T0),
                                                synth.V({"firebird/x.bak": [b]}, T0 + DAY)])
@@ -1404,8 +1407,7 @@ def test_replacing_a_file_from_another_version_marks_it_first(tmp_path):
 
 
 def test_double_dash_ends_options(tmp_path):
-    import synth
-    pytest.importorskip("nacl.bindings")
+    synth = _synth()
     root = synth.build(str(tmp_path / "arc"), [synth.V({"d/-odd name.txt": [b"x" * 9]}, T0)])
     r = _hbk(tmp_path, root, "list", "--", "-odd")
     assert r.returncode == 0 and "-odd name.txt" in r.stdout, r.stdout + r.stderr
@@ -1437,3 +1439,65 @@ def test_help_is_not_an_error(tmp_path):
 def test_the_version_number_signals_the_new_behaviour():
     major, minor = (int(x) for x in hbkit.__version__.split(".")[:2])
     assert (major, minor) >= (0, 5)
+
+
+# ------------------------------------------------------------- review round 4
+
+def test_an_empty_version_list_refuses_the_default_unless_allowed(tmp_path):
+    """A version_info.db with the right columns but no rows (a first backup that never
+    finished) says nothing about which file lists are finished: same as unreadable."""
+    import sqlite3
+    root, bodies = _three_versions(tmp_path)
+    db = sqlite3.connect(os.path.join(root, "Config", "version_info.db"))
+    db.execute("DELETE FROM version_info")
+    db.commit()
+    db.close()
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out")
+    assert r.returncode == 2 and "--allow-incomplete" in r.stderr, r.stdout + r.stderr
+    assert not (tmp_path / "out" / DB_ONE).exists()
+    r = _hbk(tmp_path, root, "get", GLOB, tmp_path / "out", "--allow-incomplete")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
+
+
+def test_tui_allow_incomplete_gets_the_same_fallback_as_get(tmp_path, monkeypatch):
+    from hbkit import cli, tui
+    root, _ = _three_versions(tmp_path)
+    with open(os.path.join(root, "Config", "version_info.db"), "wb") as fh:
+        fh.write(b"this is not a database" * 100)
+    started = []
+
+    class App:
+        def __init__(self, *a, **kw):
+            started.append(kw)
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(tui, "HBKApp", App)
+    monkeypatch.setattr(sys, "argv", ["hbk", root, "tui", "--allow-incomplete"])
+    assert cli.main() == 0 and started
+
+
+@pytest.mark.parametrize(("cmd", "code"), [
+    (["list", "/"], 0), (["versions"], 0), (["info"], 0),
+    (["verify", GLOB], 141), (["get", GLOB, "OUT"], 141),
+])
+def test_a_closed_pipe_is_success_only_for_output_only_commands(tmp_path, monkeypatch,
+                                                                 cmd, code):
+    """`verify | head -n 1` must not turn a lost (possibly failing) result into exit 0."""
+    from hbkit import cli, index
+    monkeypatch.setattr(index, "CACHE", str(tmp_path / "cache"))
+    root, _ = _three_versions(tmp_path)
+
+    class Closed:
+        def write(self, s):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self):
+            pass
+
+    argv = [str(tmp_path / "out") if x == "OUT" else x for x in cmd]
+    monkeypatch.setattr(sys, "argv", ["hbk", root, *argv])
+    monkeypatch.setattr(sys, "stdout", Closed())
+    assert cli.main_entry() == code

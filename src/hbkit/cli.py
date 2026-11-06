@@ -69,6 +69,9 @@ EXIT_VERSION = 4       # the requested backup version does not exist/is not comp
 EXIT_NO_MATCH = 5      # the glob or pattern matched no file
 EXIT_NO_SPACE = 6      # the destination does not have room for the selection
 EXIT_INTERRUPTED = 130 # Ctrl-C / SIGINT: whatever was running stopped part-way
+EXIT_PIPE = 141        # stdout closed early under get/verify: the outcome went unreported
+
+_command = ""          # the running command, for main_entry's broken-pipe exit code
 
 # Most positional arguments each archive command takes, counting <archive> and the
 # command (too few is reported by the command itself, with the usage text).
@@ -387,6 +390,8 @@ def main() -> int:
             return 2
 
     archive, cmd = a[0], a[1]
+    global _command
+    _command = cmd
 
     # Refuse what a command would silently ignore: a stray word (an unquoted path with a
     # space in it) or an option that has no effect there.
@@ -446,9 +451,11 @@ def main() -> int:
 
     if cmd == "tui":
         from .tui import HBKApp
-        if version is not None or allow_incomplete:
-            # fail here, on the terminal, rather than inside the full-screen UI
+        # fail here, on the terminal, rather than inside the full-screen UI
+        if version is not None:
             hbk.Archive(archive, unlock=False).resolve_version(version, allow_incomplete)
+        elif allow_incomplete:          # same fallback as `get` when the list is unusable
+            hbk.Archive(archive, unlock=False, allow_incomplete=True).selected_version()
         HBKApp(jobs, archive, version=version, allow_incomplete=allow_incomplete).run()
         return 0
 
@@ -567,12 +574,13 @@ def main_entry() -> int:
         print(f"{e}", file=sys.stderr)
         return 2
     except BrokenPipeError:
-        # `hbk ... list | head`: the reader has what it wanted
         try:
-            sys.stdout = open(os.devnull, "w")
+            sys.stdout = open(os.devnull, "w")      # no second error at interpreter exit
         except OSError:
             pass
-        return EXIT_OK
+        # `hbk ... list | head`: the reader has what it wanted. `get`/`verify` may not
+        # have run, or their result was lost with the report: never call that success.
+        return EXIT_OK if _command in ("list", "versions", "info") else EXIT_PIPE
     except OSError as e:
         print(f"{e}", file=sys.stderr)
         return 2
