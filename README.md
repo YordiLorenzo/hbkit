@@ -151,7 +151,7 @@ Scripts can rely on these:
 | 5 | the glob (`get`, `verify`) or pattern (`list`) matched no file |
 | 6 | the destination does not have enough free space (`get`) |
 | 130 | interrupted (Ctrl-C) |
-| 141 | `get` or `verify` stopped because its output pipe closed (`… \| head`); the outcome is unknown. `list`, `versions` and `info` exit 0 then |
+| 141 | `get` or `verify` stopped because its output pipe closed (`… \| head`); the outcome is unknown. `list`, `versions` and `info` exit 0 then (Linux and macOS; on Windows a closed pipe is a non-zero I/O error for every command) |
 
 `doctor` has its own simple contract: 0 when the archive is recoverable, 1 otherwise, with
 the reason in its report. Any argument or option a command would ignore — a second

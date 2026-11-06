@@ -549,7 +549,9 @@ def main_entry() -> int:
     """Console-script entry point; keeps `main()` usable as a plain function."""
     from .crypto import MissingCryptoDeps, WrongPassword
     try:
-        return main()
+        rc = main()
+        sys.stdout.flush()      # a closed pipe must fail here, not at interpreter exit (120)
+        return rc
     except WrongPassword:
         print("wrong password for this archive", file=sys.stderr)
         return EXIT_PASSWORD

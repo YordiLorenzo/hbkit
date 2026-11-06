@@ -1483,8 +1483,9 @@ def test_tui_allow_incomplete_gets_the_same_fallback_as_get(tmp_path, monkeypatc
     (["list", "/"], 0), (["versions"], 0), (["info"], 0),
     (["verify", GLOB], 141), (["get", GLOB, "OUT"], 141),
 ])
+@pytest.mark.parametrize("on", ["write", "flush"])     # flush: output smaller than the buffer
 def test_a_closed_pipe_is_success_only_for_output_only_commands(tmp_path, monkeypatch,
-                                                                 cmd, code):
+                                                                 cmd, code, on):
     """`verify | head -n 1` must not turn a lost (possibly failing) result into exit 0."""
     from hbkit import cli, index
     monkeypatch.setattr(index, "CACHE", str(tmp_path / "cache"))
@@ -1492,10 +1493,11 @@ def test_a_closed_pipe_is_success_only_for_output_only_commands(tmp_path, monkey
 
     class Closed:
         def write(self, s):
-            raise BrokenPipeError(32, "Broken pipe")
+            if on == "write":
+                raise BrokenPipeError(32, "Broken pipe")
 
         def flush(self):
-            pass
+            raise BrokenPipeError(32, "Broken pipe")
 
     argv = [str(tmp_path / "out") if x == "OUT" else x for x in cmd]
     monkeypatch.setattr(sys, "argv", ["hbk", root, *argv])
