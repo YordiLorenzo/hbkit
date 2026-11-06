@@ -92,6 +92,22 @@ def resolve_password(password):
     return password or os.environ.get("HBK_PASSWORD")
 
 
+def stdin_is_interactive():
+    """True when a password prompt on stdin can be answered."""
+    if not sys.stdin or not sys.stdin.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    # `< NUL` is a character device, so isatty() is True; only a real console has a mode
+    import ctypes
+    import msvcrt
+    try:
+        h = msvcrt.get_osfhandle(sys.stdin.fileno())
+    except OSError:
+        return False
+    return bool(ctypes.windll.kernel32.GetConsoleMode(ctypes.c_void_p(h), ctypes.byref(ctypes.c_uint32())))
+
+
 def open_archive(archive, password=None):
     """Open, prompting for a password only if the archive turns out to be encrypted."""
     try:
@@ -99,7 +115,7 @@ def open_archive(archive, password=None):
     except hbk.NeedPassword:
         pw = resolve_password(password)
         if not pw:
-            if not sys.stdin.isatty():
+            if not stdin_is_interactive():
                 sys.exit("archive is encrypted - pass --password or set HBK_PASSWORD")
             pw = getpass.getpass("archive password: ")
         try:
