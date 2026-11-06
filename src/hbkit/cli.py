@@ -93,7 +93,7 @@ def resolve_password(password):
 
 
 def stdin_is_interactive():
-    """True when a password prompt on stdin can be answered."""
+    """True when a password prompt can be answered: stdin is a real terminal/console."""
     if not sys.stdin or not sys.stdin.isatty():
         return False
     if os.name != "nt":
@@ -105,7 +105,8 @@ def stdin_is_interactive():
         h = msvcrt.get_osfhandle(sys.stdin.fileno())
     except OSError:
         return False
-    return bool(ctypes.windll.kernel32.GetConsoleMode(ctypes.c_void_p(h), ctypes.byref(ctypes.c_uint32())))
+    mode = ctypes.c_uint32()
+    return bool(ctypes.windll.kernel32.GetConsoleMode(ctypes.c_void_p(h), ctypes.byref(mode)))
 
 
 def open_archive(archive, password=None):

@@ -320,7 +320,7 @@ def test_encrypted_archive_with_null_stdin_fails_instead_of_prompting(tmp_path):
                        stdin=subprocess.DEVNULL, capture_output=True, text=True,
                        env=env, timeout=30, check=False)
     assert r.returncode != 0, r.stderr
-    assert "archive is encrypted" in r.stderr
+    assert "pass --password or set HBK_PASSWORD" in r.stderr
 
 
 # ------------------------------------------------- shard maths (no archive needed)
