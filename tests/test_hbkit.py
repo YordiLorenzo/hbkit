@@ -318,7 +318,7 @@ def test_encrypted_archive_with_null_stdin_fails_instead_of_prompting(tmp_path):
     env = {k: v for k, v in os.environ.items() if k != "HBK_PASSWORD"}
     r = subprocess.run([sys.executable, "-m", "hbkit.cli", str(root), "list"],
                        stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                       env=env, timeout=30)
+                       env=env, timeout=30, check=False)
     assert r.returncode != 0, r.stderr
     assert "archive is encrypted" in r.stderr
 
