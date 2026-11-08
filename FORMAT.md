@@ -267,8 +267,11 @@ A second archive (Hyper Backup 4.2.2-4262, encrypted, 8 versions) had seven `Com
 versions and one `Failure`: a run that stopped on an error. Its `suspend_history` ends in
 event 5 `fail` where finished versions end in event 6 `complete`, and its `<id>.db` file
 lists were still written, holding what was backed up before the error. Reading it would
-silently give an incomplete restore, which is why it is never the default. A "partially
-completed" run (some files skipped) has not been observed yet. [V for the values]
+silently give an incomplete restore, which is why it is never the default. The next
+successful run became version 9 (ids are not reused) and deleted version 8's `<id>.db`
+files, but left its `version_info` row, now naming shares that have no file list for it.
+A "partially completed" run (some files skipped) has not been observed yet. [V for the
+values]
 
 `Config/@Share/<share>/complete_list.db` holds `complete_list(version_id INTEGER PRIMARY
 KEY)`. It is **not** a reliable completion record: on the same archive the `@AppConfig`
