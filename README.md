@@ -109,7 +109,8 @@ date runs to local midnight (also on daylight-saving days), a minute to :59, a t
 seconds is exact. A clock time that does not exist on a spring-forward night is read as
 the hour after; one that occurs twice in autumn means its first occurrence. A version
 counts as complete only if Hyper Backup recorded its status
-as `Complete`; an unfinished one is refused unless you pass `--allow-incomplete`, which
+as `Complete`, which it also does for a "partially completed" backup (one that skipped a
+missing source folder); an unfinished or failed one is refused unless you pass `--allow-incomplete`, which
 on its own reads the newest version whether or not it finished. If no version is
 complete, commands exit with code 4 rather than showing an empty archive.
 

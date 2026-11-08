@@ -270,8 +270,15 @@ lists were still written, holding what was backed up before the error. Reading i
 silently give an incomplete restore, which is why it is never the default. The next
 successful run became version 9 (ids are not reused) and deleted version 8's `<id>.db`
 files, but left its `version_info` row, now naming shares that have no file list for it.
-A "partially completed" run (some files skipped) has not been observed yet. [V for the
-values]
+[V for the values]
+
+A run Hyper Backup reported as **partially completed** (a source folder of the task had
+been renamed away) is recorded as `'Complete'`, with event 6 `complete` in
+`suspend_history`, like any finished version. Only `missing_src` differs: it holds the
+missing source in the same `/*eNC00*...*/` form as `source` (`NULL` on every other
+version). Its file lists omit that folder and are otherwise whole, so hbkit reads it by
+default, as Hyper Backup's own restore does. hbkit cannot decrypt `missing_src` yet: it is
+not encoded like file names. [V for the values, ? for the encoding]
 
 `Config/@Share/<share>/complete_list.db` holds `complete_list(version_id INTEGER PRIMARY
 KEY)`. It is **not** a reliable completion record: on the same archive the `@AppConfig`
