@@ -303,6 +303,26 @@ def test_verify_still_rejects_options_it_does_not_take():
     assert "unknown option --verison" in r.stderr
 
 
+def test_encrypted_archive_with_null_stdin_fails_instead_of_prompting(tmp_path):
+    """On Windows `< NUL` is a character device, so isatty() says True and getpass used
+    to wait on the console forever. Only enough of an archive to reach NeedPassword."""
+    import struct
+    header = struct.pack(">16I", hbk.MAGIC, 0, 0, 0, 56, *([0] * 11))
+    root = tmp_path / "enc.hbk"
+    for d in ("Config/virtual_file.index", "Pool/chunk_index",
+              "Config/file_chunk1.index", "Pool/0"):
+        (root / d).mkdir(parents=True)
+    (root / "Config/virtual_file.index/0.idx").write_bytes(header)
+    (root / "Pool/chunk_index/0.idx").write_bytes(header)
+    (root / "_Syno_TaskConfig").write_text('enable_data_encrypt="true"\n')
+    env = {k: v for k, v in os.environ.items() if k != "HBK_PASSWORD"}
+    r = subprocess.run([sys.executable, "-m", "hbkit.cli", str(root), "list"],
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                       env=env, timeout=30, check=False)
+    assert r.returncode != 0, r.stderr
+    assert "pass --password or set HBK_PASSWORD" in r.stderr
+
+
 # ------------------------------------------------- shard maths (no archive needed)
 
 def _make_shards(tmp_path, sizes, shard_size, monkeypatch):
@@ -965,6 +985,7 @@ def test_tui_opens_the_selected_version(tmp_path, monkeypatch):
     from hbkit import index as hbk_index
     from hbkit import tui
     monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(tui, "scan_for_archives", lambda: [])   # a real one would be probed too
     root, _ = _three_versions(tmp_path)
 
     class App(tui.HBKApp):
@@ -1204,6 +1225,7 @@ def test_tui_refuses_an_archive_with_no_complete_version(tmp_path, monkeypatch):
     from hbkit import index as hbk_index
     from hbkit import tui
     monkeypatch.setattr(hbk_index, "CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(tui, "scan_for_archives", lambda: [])   # a real one would be probed too
     root, _ = _three_versions(tmp_path, statuses=("Backingup",) * 3)
 
     class App(tui.HBKApp):
