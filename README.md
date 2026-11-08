@@ -109,8 +109,8 @@ date runs to local midnight (also on daylight-saving days), a minute to :59, a t
 seconds is exact. A clock time that does not exist on a spring-forward night is read as
 the hour after; one that occurs twice in autumn means its first occurrence. A version
 counts as complete only if Hyper Backup recorded its status
-as `Complete`, which it also does for a "partially completed" backup (one that skipped a
-missing source folder); an unfinished or failed one is refused unless you pass `--allow-incomplete`, which
+as `Complete`, which it also does for a "partially completed" backup, at least one that
+skipped a missing source folder; an unfinished or failed one is refused unless you pass `--allow-incomplete`, which
 on its own reads the newest version whether or not it finished. If no version is
 complete, commands exit with code 4 rather than showing an empty archive.
 
@@ -152,7 +152,7 @@ Scripts can rely on these:
 | 5 | the glob (`get`, `verify`) or pattern (`list`) matched no file |
 | 6 | the destination does not have enough free space (`get`) |
 | 130 | interrupted (Ctrl-C) |
-| 141 | `get` or `verify` stopped because its output pipe closed (`… \| head`); the outcome is unknown. `list`, `versions` and `info` exit 0 then (Linux and macOS; on Windows a closed pipe is a non-zero I/O error for every command) |
+| 141 | `get`, `verify` or another command that acts rather than only prints stopped because its output pipe closed (`… \| head`) before it finished; the outcome is unknown. `list`, `versions` and `info` exit 0 then; a pipe that closes after a command finished keeps that command's code (Linux and macOS; on Windows a closed pipe is a non-zero I/O error for every command) |
 
 `doctor` has its own simple contract: 0 when the archive is recoverable, 1 otherwise, with
 the reason in its report. Any argument or option a command would ignore — a second

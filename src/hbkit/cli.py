@@ -320,6 +320,8 @@ def cmd_versions(archive, porcelain: bool) -> int:
 
 
 def main() -> int:
+    global _command
+    _command = ""
     a = sys.argv[1:]
     if a in (["-h"], ["--help"]):
         print(__doc__)
@@ -407,7 +409,6 @@ def main() -> int:
             return 2
 
     archive, cmd = a[0], a[1]
-    global _command
     _command = cmd
 
     # Refuse what a command would silently ignore: a stray word (an unquoted path with a
@@ -567,7 +568,11 @@ def main_entry() -> int:
     from .crypto import MissingCryptoDeps, WrongPassword
     try:
         rc = main()
-        sys.stdout.flush()      # a closed pipe must fail here, not at interpreter exit (120)
+        try:
+            sys.stdout.flush()  # a closed pipe must fail here, not at interpreter exit (120)
+        except BrokenPipeError:
+            sys.stdout = open(os.devnull, "w")
+            # `main()` finished, so its result is known: the reader only missed the tail
         return rc
     except WrongPassword:
         print("wrong password for this archive", file=sys.stderr)

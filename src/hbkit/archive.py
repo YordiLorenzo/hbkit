@@ -507,8 +507,9 @@ class Archive:
             have = ", ".join(str(v.id) for v in vs) or "none"
             raise VersionNotFound(f"version {want} does not exist (versions: {have})")
         if shares and want not in present:
-            raise VersionNotFound(f"version {want} has no file lists in this archive "
-                                  "(removed by retention?)")
+            why = ("removed by retention?" if found.complete is not False else
+                   f"status {found.status!r}; its lists are deleted after a failed run")
+            raise VersionNotFound(f"version {want} has no file lists in this archive ({why})")
         if found.complete is False and not allow_incomplete:
             raise VersionNotFound(f"version {want} is not complete (status {found.status!r}); "
                                   "pass --allow-incomplete to read it anyway")

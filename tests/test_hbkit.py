@@ -1388,6 +1388,7 @@ def test_a_closed_pipe_is_not_an_internal_error(tmp_path):
                        'exit ${PIPESTATUS[0]}', shell=True, executable="/bin/bash",
                        capture_output=True, text=True, env=env)
     assert "Traceback" not in p.stderr and "please report" not in p.stderr, p.stderr
+    assert p.returncode == 0, p.stderr                       # list: the reader had enough
 
 
 # ------------------------------------------------------------- review round 3
@@ -1501,14 +1502,18 @@ def test_tui_allow_incomplete_gets_the_same_fallback_as_get(tmp_path, monkeypatc
     assert cli.main() == 0 and started
 
 
-@pytest.mark.parametrize(("cmd", "code"), [
-    (["list", "/"], 0), (["versions"], 0), (["info"], 0),
-    (["verify", GLOB], 141), (["get", GLOB, "OUT"], 141),
+@pytest.mark.parametrize(("cmd", "mid_run", "after"), [
+    (["list", "/"], 0, 0), (["versions"], 0, 0), (["info"], 0, 0),
+    (["list", "zzz-no-such"], 0, 5),
+    (["verify", GLOB], 141, 0), (["get", GLOB, "OUT"], 141, 0),
+    (["verify", "/nothing/*"], 141, 5),
 ])
 @pytest.mark.parametrize("on", ["write", "flush"])     # flush: output smaller than the buffer
 def test_a_closed_pipe_is_success_only_for_output_only_commands(tmp_path, monkeypatch,
-                                                                 cmd, code, on):
-    """`verify | head -n 1` must not turn a lost (possibly failing) result into exit 0."""
+                                                                 cmd, mid_run, after, on):
+    """`verify | head -n 1` must not turn a lost (possibly failing) result into exit 0.
+    A pipe closing mid-run loses the outcome; one closing at the final flush, after the
+    command finished, must keep the code it returned."""
     from hbkit import cli, index
     monkeypatch.setattr(index, "CACHE", str(tmp_path / "cache"))
     root, _ = _three_versions(tmp_path)
@@ -1524,4 +1529,13 @@ def test_a_closed_pipe_is_success_only_for_output_only_commands(tmp_path, monkey
     argv = [str(tmp_path / "out") if x == "OUT" else x for x in cmd]
     monkeypatch.setattr(sys, "argv", ["hbk", root, *argv])
     monkeypatch.setattr(sys, "stdout", Closed())
-    assert cli.main_entry() == code
+    assert cli.main_entry() == (mid_run if on == "write" else after)
+
+
+def test_a_failed_version_without_file_lists_names_its_status(tmp_path):
+    """Hyper Backup deletes a failed run's file lists after the next successful one: the
+    refusal should say the version failed, not blame retention."""
+    root, _ = _three_versions(tmp_path, statuses=("Complete", "Failure", "Complete"))
+    os.remove(os.path.join(root, "Config", "@Share", "db_staging", "2.db"))
+    with pytest.raises(hbk.VersionNotFound, match="status 'Failure'"):
+        hbk.Archive(root).resolve_version("2", allow_incomplete=True)

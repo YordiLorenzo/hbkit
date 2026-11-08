@@ -263,34 +263,38 @@ status values seen so far; hbkit treats **any value other than `'Complete'` as n
 complete** rather than guessing what it means. `timestamp` matched the `create` event in
 `suspend_history`. [V]
 
-A second archive (Hyper Backup 4.2.2-4262, encrypted, 8 versions) had seven `Complete`
-versions and one `Failure`: a run that stopped on an error. Its `suspend_history` ends in
-event 5 `fail` where finished versions end in event 6 `complete`, and its `<id>.db` file
-lists were still written, holding what was backed up before the error. Reading it would
-silently give an incomplete restore, which is why it is never the default. The next
-successful run became version 9 (ids are not reused) and deleted version 8's `<id>.db`
-files, but left its `version_info` row, now naming shares that have no file list for it.
-[V for the values]
+A second archive (Hyper Backup 4.2.2-4262, encrypted) was read at 8 and again at 11
+versions. Version 8 is a `Failure`: a run that stopped on an error. Its `suspend_history`
+ends in event 5 `fail` where finished versions end in event 6 `complete`, and in the
+8-version copy its `<id>.db` file lists existed, holding what was backed up before the
+error. Reading it would silently give an incomplete restore, which is why it is never the
+default. The next successful run became version 9 and deleted version 8's `<id>.db` files
+(`Config/version_delete.prog` was written then, with `is_rotate=false`), but left its
+`version_info` row, now naming shares that have no file list for it. `id` is
+`AUTOINCREMENT`, so ids are never reused. [V for the values]
 
-A run Hyper Backup reported as **partially completed** (a source folder of the task had
-been renamed away) is recorded as `'Complete'`, with event 6 `complete` in
-`suspend_history`, like any finished version. Only `missing_src` differs: it holds the
-missing source in the same `/*eNC00*...*/` form as `source` (`NULL` on every other
-version). Its file lists omit that folder and are otherwise whole, so hbkit reads it by
-default, as Hyper Backup's own restore does. hbkit cannot decrypt `missing_src` yet: it is
-not encoded like file names. [V for the values, ? for the encoding]
+Version 11 is a run Hyper Backup reported as **partially completed**, because a source
+folder of the task had been renamed away. It is recorded as `'Complete'`, with event 6
+`complete` in `suspend_history`, like any finished version. Only `missing_src` differs: it
+holds the missing source in the same `/*eNC00*...*/` form as `source` (`NULL` on every
+other version). Its file lists omit that folder and are otherwise whole, so hbkit reads it
+by default. Whether other causes of "partially completed" (unreadable files, say) are also
+recorded as `'Complete'` is not known. hbkit cannot decrypt `missing_src` yet: it is not
+encoded like file names. [V for the values, ? for other causes and the encoding]
 
 `Config/@Share/<share>/complete_list.db` holds `complete_list(version_id INTEGER PRIMARY
 KEY)`. It is **not** a reliable completion record: on the same archive the `@AppConfig`
 share's list was empty although both versions were `Complete` in `version_info`, while
-the data share listed both. On the second archive the data share listed the seven
-`Complete` versions but not the `Failure` one, and `@AppConfig` was again empty. hbkit does
-not use it. [V for the observation, ? for meaning]
+the data share listed both. On the second archive (11 versions) the data share listed
+every `Complete` version but not the `Failure` one, and `@AppConfig` was again empty. hbkit
+does not use it. [V for the observation, ? for meaning]
 
 On that archive version 1 had `depose_time` set to the start time of version 2, while
 version 2 kept the default `-1`. On the second archive each `Complete` version had the
-start time of the next one, the newest `Complete` version had `0` and the `Failure` version
-`-1`. The meaning is not known and hbkit ignores it, as it does `bad_share` and `locked`.
+start time of the next **`Complete`** version (version 7 holds version 9's, skipping the
+failed 8), the newest `Complete` version had `0` and the `Failure` version `-1`: it looks
+like "superseded as the newest good version at". The meaning is not known and hbkit
+ignores it, as it does `bad_share` and `locked`.
 [V for the values, ? for meaning]
 
 The same archive also showed `Pool/vkey.db` with one row per version (`version_id` 1, 2),

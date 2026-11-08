@@ -19,7 +19,7 @@
 
 Exit codes are now distinct and documented (README, "Exit codes"):
 
-| situation | 0.4.7 | 0.5.0 |
+| situation | 0.4.8 | 0.5.0 |
 |---|---|---|
 | password missing (non-interactive) | 1 | 3 |
 | wrong password | 1 or 2 | 3 |
