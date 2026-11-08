@@ -258,18 +258,30 @@ CREATE TABLE version_info (
   enc_cksum BLOB DEFAULT NULL, depose_time INTEGER DEFAULT -1);
 ```
 
-Only `id`, `timestamp` and `status` are relied on. `'Complete'` is the only status value
-seen so far; hbkit treats **any other value as not complete** rather than guessing what
-it means. `timestamp` matched the `create` event in `suspend_history`. [V]
+Only `id`, `timestamp` and `status` are relied on. `'Complete'` and `'Failure'` are the
+status values seen so far; hbkit treats **any value other than `'Complete'` as not
+complete** rather than guessing what it means. `timestamp` matched the `create` event in
+`suspend_history`. [V]
+
+A second archive (Hyper Backup 4.2.2-4262, encrypted, 8 versions) had seven `Complete`
+versions and one `Failure`: a run that stopped on an error. Its `suspend_history` ends in
+event 5 `fail` where finished versions end in event 6 `complete`, and its `<id>.db` file
+lists were still written, holding what was backed up before the error. Reading it would
+silently give an incomplete restore, which is why it is never the default. A "partially
+completed" run (some files skipped) has not been observed yet. [V for the values]
 
 `Config/@Share/<share>/complete_list.db` holds `complete_list(version_id INTEGER PRIMARY
 KEY)`. It is **not** a reliable completion record: on the same archive the `@AppConfig`
 share's list was empty although both versions were `Complete` in `version_info`, while
-the data share listed both. hbkit does not use it. [V for the observation, ? for meaning]
+the data share listed both. On the second archive the data share listed the seven
+`Complete` versions but not the `Failure` one, and `@AppConfig` was again empty. hbkit does
+not use it. [V for the observation, ? for meaning]
 
 On that archive version 1 had `depose_time` set to the start time of version 2, while
-version 2 kept the default `-1`; the meaning is not known and hbkit ignores it, as it
-does `bad_share` and `locked`. [V for the values, ? for meaning]
+version 2 kept the default `-1`. On the second archive each `Complete` version had the
+start time of the next one, the newest `Complete` version had `0` and the `Failure` version
+`-1`. The meaning is not known and hbkit ignores it, as it does `bad_share` and `locked`.
+[V for the values, ? for meaning]
 
 The same archive also showed `Pool/vkey.db` with one row per version (`version_id` 1, 2),
 and index shards with a `_dup` sibling (`0.idx_dup`) instead of a generation suffix; the
