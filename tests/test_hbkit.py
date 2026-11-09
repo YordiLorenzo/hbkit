@@ -1380,15 +1380,17 @@ def test_unusual_digits_are_a_usage_error(tmp_path):
     assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="needs bash; see the in-process pipe test")
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="a closed pipe is EINVAL there; see the in-process pipe test")
 def test_a_closed_pipe_is_not_an_internal_error(tmp_path):
     root, _ = _three_versions(tmp_path)
     env = {**os.environ, "HBK_CACHE": str(tmp_path / "cache")}
-    p = subprocess.run(f'"{sys.executable}" -m hbkit.cli "{root}" list / | head -c 1 >/dev/null; '
-                       'exit ${PIPESTATUS[0]}', shell=True, executable="/bin/bash",
-                       capture_output=True, text=True, env=env)
-    assert "Traceback" not in p.stderr and "please report" not in p.stderr, p.stderr
-    assert p.returncode == 0, p.stderr                       # list: the reader had enough
+    p = subprocess.Popen([sys.executable, "-m", "hbkit.cli", str(root), "list", "/"],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    p.stdout.close()                     # the reader is gone before hbk writes a byte
+    err = p.stderr.read().decode()
+    assert p.wait(timeout=60) == 0, err                      # list: the reader had enough
+    assert "Traceback" not in err and "please report" not in err, err
 
 
 # ------------------------------------------------------------- review round 3
