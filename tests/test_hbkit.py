@@ -1483,6 +1483,28 @@ def test_an_empty_version_list_refuses_the_default_unless_allowed(tmp_path):
     assert (tmp_path / "out" / DB_ONE).read_bytes() == bodies[-1]
 
 
+def test_an_unlistable_config_dir_is_not_mistaken_for_a_missing_version_list(
+        tmp_path, monkeypatch):
+    """An I/O error listing Config/ (a network mount hiccup) must not take the
+    no-version_info fallback, which skips the completion check."""
+    import errno
+    root, _ = _three_versions(tmp_path)
+    arc = hbk.Archive(root, unlock=False)
+    real = os.listdir
+    config = os.path.join(root, "Config")
+
+    def flaky(d="."):
+        if os.path.normpath(str(d)) == os.path.normpath(config):
+            raise OSError(errno.EIO, "Input/output error", str(d))
+        return real(d)
+
+    monkeypatch.setattr(hbk.os, "listdir", flaky)
+    with pytest.raises(hbk.UnsupportedArchive, match="version_info.db"):
+        arc.versions()
+    with pytest.raises(hbk.UnsupportedArchive, match="--allow-incomplete"):
+        arc.selected_version()
+
+
 def test_tui_allow_incomplete_gets_the_same_fallback_as_get(tmp_path, monkeypatch):
     from hbkit import cli, tui
     root, _ = _three_versions(tmp_path)

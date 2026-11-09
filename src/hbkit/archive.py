@@ -442,7 +442,9 @@ class Archive:
 
         try:
             p = resolve(f"{self.root}/Config", "version_info.db")
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            if e.__cause__ is not None:   # Config/ could not be listed: unknown, not absent
+                raise UnsupportedArchive(f"cannot look for version_info.db: {e}") from None
             ids = sorted({v for s in self.shares() for v in self.share_versions(s)})
             return [Version(i) for i in ids]
         try:
