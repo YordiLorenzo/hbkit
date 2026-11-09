@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+### Fixed
+
+- The test suite no longer needs `/bin/bash`, so it runs in Nix and other build sandboxes.
+  The closed-pipe test now closes the pipe itself, before hbk writes anything.
+
 ## 0.5.0
 
 ### New
