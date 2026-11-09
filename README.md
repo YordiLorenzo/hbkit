@@ -68,8 +68,9 @@ live progress bar, throughput, ETA and a failure log.
 
 ```sh
 hbk <archive> doctor                            # probe an archive, prove it's readable
-hbk <archive> info                              # task name, codec, shares, encryption
-hbk <archive> list [pattern]                    # search the file index
+hbk <archive> info                              # task name, codec, shares, versions
+hbk <archive> versions [--porcelain]            # backup versions, start times, status
+hbk <archive> list [pattern|glob]               # search the file index
 hbk <archive> get <glob> <dest> [-j N]          # extract, preserving tree and mtimes
 hbk <archive> get <glob> <dest> --strict        # ...re-verifying checksums on resume
 hbk <archive> verify <glob> [-j N]              # integrity-check, write nothing
@@ -85,7 +86,81 @@ For encrypted archives pass `-p/--password`, set `HBK_PASSWORD`, or let it promp
 shows a password field when it detects encryption.
 
 `<archive>` is a `.hbk` directory, or any drive or folder containing one — it will find it.
-Globs match the full archive path, which begins with the share name.
+Globs match the full archive path, which begins with the share name. `list` takes either
+plain text (case-insensitive substring) or, if it contains `*`, `?` or `[`, the same glob
+`get` would use.
+
+### Backup versions
+
+Hyper Backup keeps many versions of the same data. `list`, `get`, `verify`, `info`,
+`doctor` and `tui` read the **newest complete** version unless told otherwise:
+
+| option | reads |
+|---|---|
+| *(none)* | the newest complete version |
+| `--version N` | exactly version `N` (the numbers `versions` prints) |
+| `--version @2026-10-15` | the newest complete version that started **by the end of** that day |
+| `--version '@2026-10-15 03:30'` | … that started no later than 03:30:59 that day |
+| `--before '2026-10-15 23:59'` | the same as `--version '@2026-10-15 23:59'` |
+| `--allow-incomplete` | also accept a version whose backup did not finish |
+
+Dates are in the local time of the machine running `hbk` (set `TZ` to change it); a bare
+date runs to local midnight (also on daylight-saving days), a minute to :59, a time with
+seconds is exact. A clock time that does not exist on a spring-forward night is read as
+the hour after; one that occurs twice in autumn means its first occurrence. A version
+counts as complete only if Hyper Backup recorded its status
+as `Complete`, which it also does for a "partially completed" backup, at least one that
+skipped a missing source folder; an unfinished or failed one is refused unless you pass `--allow-incomplete`, which
+on its own reads the newest version whether or not it finished. If no version is
+complete, commands exit with code 4 rather than showing an empty archive.
+
+Every share is read from the **same** version, so the default and `--version N` for the
+newest complete `N` give identical results; a share that was not part of that version is
+absent rather than silently taken from an older one. Archives without
+`Config/version_info.db` fall back to the newest database of each share. If the file is
+there but cannot be read (damaged, an unknown layout, caught mid-write, or with no
+versions in it), hbkit cannot tell finished versions from unfinished ones, so it refuses
+(code 2) unless you pass
+`--allow-incomplete`, which then reads the newest file list of each share and says that
+completion was not checked. Whenever there is a choice, the version being read is
+printed on stderr.
+
+```sh
+hbk "$HBK_DIR" versions                         # human-readable, marks the default
+hbk "$HBK_DIR" versions --porcelain             # id<TAB>ISO time<TAB>unix time<TAB>status
+hbk "$HBK_DIR" list "/db_staging/firebird/*" --version @2026-10-15
+hbk "$HBK_DIR" get  "/db_staging/firebird/*.gbk" "$TMP" --version @2026-10-15 -j 8
+```
+
+`--porcelain` prints one line per version, oldest first, for example
+`12	2026-10-15T03:00:04+02:00	1792026004	Complete`. `versions` needs no password: the
+version list is stored unencrypted. Each version gets its own index in the cache, so
+switching between them only builds each index once. A rebuilt index replaces the stale
+one for the same archive and version.
+
+### Exit codes
+
+Scripts can rely on these:
+
+| code | meaning |
+|---|---|
+| 0 | success |
+| 1 | one or more files failed to extract or verify — a checksum mismatch or an unreadable chunk; the failures are listed on stdout |
+| 2 | usage error (including a malformed `--version`), the archive is missing, unreadable or of an unsupported layout, or an unexpected internal error |
+| 3 | the archive is encrypted and no password was given, or it is wrong |
+| 4 | the requested version does not exist, is not complete, or no version matches the date |
+| 5 | the glob (`get`, `verify`) or pattern (`list`) matched no file |
+| 6 | the destination does not have enough free space (`get`) |
+| 130 | interrupted (Ctrl-C) |
+| 141 | `get`, `verify` or another command that acts rather than only prints stopped because its output pipe closed (`… \| head`) before it finished; the outcome is unknown. `list`, `versions` and `info` exit 0 then; a pipe that closes after a command finished keeps that command's code (Linux and macOS; on Windows a closed pipe is a non-zero I/O error for every command) |
+
+`doctor` has its own simple contract: 0 when the archive is recoverable, 1 otherwise, with
+the reason in its report. Any argument or option a command would ignore — a second
+`--version`, `--strict` outside `get`, a stray word after the destination (an unquoted
+path with a space) — is refused with code 2 rather than silently dropped. `--version`
+on its own prints hbkit's version; followed by anything it selects a backup version. To
+search for a name that starts with `-`, end the options with `--`:
+`hbk <archive> list -- -draft`.
 
 **Start with `doctor`.** It reports the layout it found and then *proves* the archive is
 readable by rebuilding a random sample of real files with full checksum verification:
@@ -111,7 +186,12 @@ readable by rebuilding a random sample of real files with full checksum verifica
 
 ## Behaviour worth knowing
 
-- **Resumable.** Correctly-sized files are skipped, so re-running a big job is cheap.
+- **Resumable.** Correctly-sized files are skipped, so re-running a big job is cheap. A
+  file recorded as restored from a *different* backup version is extracted again even if
+  its size matches, so restoring another version into the same directory is safe. A file
+  whose record does not name its source — restored by hbkit before 0.5 — is extracted
+  again once too, since nothing says which version it came from. (A file with no record
+  at all, e.g. copied in by hand, is still judged by size alone; `--strict` refuses it.)
 - **Crash-safe.** Files are written to `.part` and atomically renamed, so an interrupted
   run never leaves a truncated file that a later resume would trust.
 - **Layout preserved.** Output goes to `<dest>/<share>/<original path>` with original mtimes.
@@ -119,7 +199,7 @@ readable by rebuilding a random sample of real files with full checksum verifica
 - **Sidecars skipped.** `@eaDir`, `@SynoEAStream` and `@SynoResource` are Synology
   metadata — thumbnails and xattr streams, not your data. In one real archive they were
   half of all entries but under 1% of the bytes.
-- **Index cached** per archive in `~/.cache/hbkit` (override with `HBK_CACHE`), rebuilt
+- **Index cached** per archive and version in `~/.cache/hbkit` (override with `HBK_CACHE`), rebuilt
   automatically when the archive changes. Browsing 1.1M files is instant after the first
   open; building it takes ~10s locally, ~48s over a network mount.
 
@@ -242,6 +322,10 @@ Read this before trusting it with the only copy of anything.
   archive (unencrypted, LZ4, single version, single pool) and a small encrypted one from
   the same DSM version, both verified byte-exact, plus a 7-version encrypted archive from
   Hyper Backup 4.2.2 reported in [#4](https://github.com/YordiLorenzo/hbkit/issues/4).
+  Version selection was checked byte-exact on a small two-version encrypted Hyper Backup
+  4.2.2 archive (each version's copy of a changed file, by number and by date), and on
+  synthetic archives; the version list comes from `Config/version_info.db`, whose layout
+  is checked before use.
   Older record layouts (16-byte `chunk_index`, 28-byte bucket records) and zlib chunks
   are implemented from disassembly but have not met a real archive of that kind. `doctor`
   exists precisely so you can find out in seconds rather than mid-restore.

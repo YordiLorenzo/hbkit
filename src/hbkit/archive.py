@@ -29,6 +29,7 @@ import re
 import struct
 import zlib
 from collections import OrderedDict
+from dataclasses import dataclass
 
 class NeedPassword(Exception):
     """The archive is encrypted and no password was supplied."""
@@ -38,6 +39,51 @@ class UnsupportedArchive(Exception):
     """The archive uses a layout this reader does not implement. Never guess - a wrong
     guess here means silently wrong bytes, which is the one outcome a recovery tool
     must never produce."""
+
+
+def parse_moment(text: str) -> float:
+    """'YYYY-MM-DD[ HH:MM[:SS]]' (or with 'T') in local time -> the last unix second it
+    covers: a bare date runs to the next local midnight (23 or 25 hours on a DST change),
+    a minute to :59, a second is exact. Raises ValueError for anything else."""
+    import datetime as dt
+
+    text = text.strip()
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?", text)
+    if not m:
+        raise ValueError(f"not a date: {text!r} (want YYYY-MM-DD[ HH:MM[:SS]])")
+    day = dt.date.fromisoformat(m.group(1))
+    if m.group(2) is None:
+        return dt.datetime.combine(day + dt.timedelta(days=1), dt.time()).timestamp() - 1
+    else:
+        start = dt.datetime.combine(day, dt.time(int(m.group(2)), int(m.group(3)),
+                                                 int(m.group(4) or 0)))
+        span = 1 if m.group(4) is not None else 60
+    return start.timestamp() + span - 1
+
+
+class VersionNotFound(Exception):
+    """The requested backup version does not exist, is not complete, or no version
+    matches the requested date."""
+
+
+class InvalidVersionSpec(ValueError):
+    """A version selector that is neither a number nor '@' plus a date: a typo, not a
+    missing backup."""
+
+
+@dataclass(frozen=True)
+class Version:
+    """One backup run. `timestamp` (unix seconds, start of the run) and `status` are None
+    when the archive has no Config/version_info.db to say."""
+    id: int
+    timestamp: int | None = None
+    status: str | None = None
+
+    @property
+    def complete(self) -> bool | None:
+        """True only for status 'Complete', the one value seen on real archives; any
+        other status counts as unfinished. None when the archive does not record it."""
+        return None if self.status is None else self.status == "Complete"
 
 
 MAX_OPEN_BUCKETS = int(os.environ.get("HBK_MAX_OPEN", "64"))
@@ -269,7 +315,16 @@ def find_archive_root(path: str) -> str:
 class Archive:
     """One .hbk archive. Cheap to construct; caches open handles and bucket indexes."""
 
-    def __init__(self, root: str, password: str | None = None):
+    def __init__(self, root: str, password: str | None = None,
+                 version: str | int | None = None, allow_incomplete: bool = False,
+                 unlock: bool = True):
+        """`version` picks the backup version to read (see `resolve_version`); None reads
+        the newest complete one. Only the share databases depend on it - the data pool is
+        shared by every version - so extraction itself needs no version.
+
+        `unlock=False` opens an encrypted archive without its password, for metadata that
+        is stored in the clear (versions, task settings); names and data stay unreadable.
+        """
         self.root = find_archive_root(root)
         self.crypto = None
         c, p = f"{self.root}/Config", f"{self.root}/Pool"
@@ -293,7 +348,16 @@ class Archive:
         self._brec: dict[int, int] = {}
         self._bkey: dict[int, int] = {}      # bucket id -> index into crypto.data_keys
         self._password = None
-        if self.is_encrypted():
+        # The version list is stored in the clear: check the selector before unlocking,
+        # so a typo or a missing version is reported without asking for a password.
+        # an encrypted archive opened without its password: metadata only, never data
+        self._locked = not unlock and self.is_encrypted()
+        self.allow_incomplete = allow_incomplete
+        self.version: int | None = None          # set only when explicitly chosen
+        self._selected: tuple[int | None] | None = None   # memo of selected_version()
+        if version is not None:
+            self.version = self.resolve_version(version, allow_incomplete)
+        if unlock and self.is_encrypted():
             if password is None:
                 raise NeedPassword(f"{self.root} is encrypted - a password is required")
             self.crypto = self._open_crypto(password)
@@ -366,13 +430,139 @@ class Archive:
                 vs.add(int(m.group(1)))
         return sorted(vs)
 
+    def versions(self) -> list[Version]:
+        """Every backup version the archive records, oldest first.
+
+        Read from Config/version_info.db (plain SQLite even on encrypted archives). An
+        archive without that file falls back to the version numbers of the share
+        databases, with no dates and no completion status. A version_info.db without the
+        columns hbkit relies on, or without any rows, is refused rather than guessed at.
+        """
+        import sqlite3
+
+        try:
+            p = resolve(f"{self.root}/Config", "version_info.db")
+        except FileNotFoundError:
+            ids = sorted({v for s in self.shares() for v in self.share_versions(s)})
+            return [Version(i) for i in ids]
+        try:
+            db = sqlite3.connect(f"file:{p}?immutable=1", uri=True)
+            try:
+                cols = {r[1] for r in db.execute("PRAGMA table_info(version_info)")}
+                if not {"id", "timestamp", "status"} <= cols:
+                    raise UnsupportedArchive(
+                        f"{p}: no version_info(id, timestamp, status) table - unknown layout")
+                rows = db.execute(
+                    "SELECT id, timestamp, status FROM version_info ORDER BY id").fetchall()
+            finally:
+                db.close()
+        except sqlite3.Error as e:
+            raise UnsupportedArchive(f"{p}: unreadable ({e})") from None
+        if not rows:            # e.g. a first backup that never finished: nothing to trust
+            raise UnsupportedArchive(f"{p}: the version_info table has no rows")
+        return [Version(int(i), None if t is None else int(t), "" if s is None else str(s))
+                for i, t, s in rows]
+
+    def resolve_version(self, spec: str | int | None, allow_incomplete: bool = False) -> int:
+        """Turn a version selector into a version id.
+
+        None: the newest complete version. N: exactly version N, which must exist and,
+        unless `allow_incomplete`, be complete. '@YYYY-MM-DD[ HH:MM[:SS]]': the newest
+        complete version that started no later than that local time (see `parse_moment`).
+        Raises VersionNotFound otherwise.
+        """
+        text = None if spec is None else str(spec).strip()
+        if text is not None and text.startswith("@"):
+            try:
+                cutoff = parse_moment(text[1:])
+            except ValueError as e:
+                raise InvalidVersionSpec(f"--version {text}: {e}") from None
+        elif text is not None and not (text.isascii() and text.isdigit()):
+            raise InvalidVersionSpec(f"--version {text}: want a version number, "
+                                     "or @YYYY-MM-DD[ HH:MM[:SS]]")
+        vs = self.versions()
+        # A version whose file lists are all gone (rotated away while its row stayed, or
+        # never written) has nothing to read: never select it.
+        shares = self.shares()
+        present = {i for s in shares for i in self.share_versions(s)}
+        listed = [v for v in vs if not shares or v.id in present]
+        usable = [v for v in listed if allow_incomplete or v.complete is not False]
+        if text is None:
+            if not usable:
+                raise VersionNotFound("the archive has no complete backup version; "
+                                      "pass --allow-incomplete to read an unfinished one")
+            return usable[-1].id
+        if text.startswith("@"):
+            if vs and all(v.timestamp is None for v in vs):
+                raise VersionNotFound("this archive records no version dates "
+                                      "(no Config/version_info.db); choose a version number")
+            hits = [v for v in usable if v.timestamp is not None and v.timestamp <= cutoff]
+            if not hits:
+                kind = "version" if allow_incomplete else "complete version"
+                raise VersionNotFound(f"no {kind} at or before {text[1:]}")
+            return max(hits, key=lambda v: (v.timestamp, v.id)).id
+        want = int(text)
+        found = next((v for v in vs if v.id == want), None)
+        if found is None:
+            have = ", ".join(str(v.id) for v in vs) or "none"
+            raise VersionNotFound(f"version {want} does not exist (versions: {have})")
+        if shares and want not in present:
+            why = ("removed by retention?" if found.complete is not False else
+                   f"status {found.status!r}; its lists are deleted after a failed run")
+            raise VersionNotFound(f"version {want} has no file lists in this archive ({why})")
+        if found.complete is False and not allow_incomplete:
+            raise VersionNotFound(f"version {want} is not complete (status {found.status!r}); "
+                                  "pass --allow-incomplete to read it anyway")
+        return want
+
+    def selected_version(self) -> int | None:
+        """The one version every share is read from: the explicit choice, else the
+        newest complete version (any newest one with `allow_incomplete`).
+
+        None when the archive has no version_info.db, or - only with `allow_incomplete`
+        - has one hbkit cannot read: each share then falls back to its own newest
+        database, as before versions were supported. Without `allow_incomplete` an
+        unreadable version list raises UnsupportedArchive, because nothing then tells a
+        finished backup from one still being written. Raises VersionNotFound when
+        versions are known but none qualifies.
+        """
+        if self.version is not None:
+            return self.version
+        # Resolved once per Archive and kept: a backup that finishes while hbkit runs
+        # must not switch versions between two shares of the same index.
+        if self._selected is None:
+            try:
+                vs = self.versions()
+            except UnsupportedArchive as e:
+                if not self.allow_incomplete:
+                    raise UnsupportedArchive(
+                        f"{e}; cannot tell finished backup versions from unfinished ones - "
+                        "pass --allow-incomplete to read the newest file list of each "
+                        "share anyway") from None
+                vs = []
+            if not vs or all(v.status is None for v in vs):
+                self._selected = (None,)
+            else:
+                self._selected = (self.resolve_version(None, self.allow_incomplete),)
+        return self._selected[0]
+
+    def share_version(self, share: str) -> int:
+        """The version of `share` to read (see `selected_version`)."""
+        d = f"{self.root}/Config/@Share/{share}"
+        have = self.share_versions(share)
+        vid = self.selected_version()
+        if vid is not None:
+            if vid not in have:
+                raise FileNotFoundError(f"share {share} is not in version {vid}")
+            return vid
+        if not have:
+            raise FileNotFoundError(f"no version db in {d}")
+        return max(have)
+
     def share_db(self, share: str, version: int | None = None) -> str:
         d = f"{self.root}/Config/@Share/{share}"
         if version is None:
-            vs = self.share_versions(share)
-            if not vs:
-                raise FileNotFoundError(f"no version db in {d}")
-            version = max(vs)
+            version = self.share_version(share)
         return resolve(d, f"{version}.db")
 
     # -- chunk plumbing ---------------------------------------------------
@@ -460,6 +650,9 @@ class Archive:
         `on_bytes(n)` is called periodically with bytes produced since the last call, so a
         caller can report progress *within* a large file rather than only when it finishes.
         """
+        if getattr(self, "_locked", False):
+            raise NeedPassword(f"{self.root} was opened without its password; "
+                               "file data cannot be read")
         if not size:
             return 0 if out is not None else b""
         if ovf is None or ovf < 0:

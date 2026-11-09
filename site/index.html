@@ -264,7 +264,7 @@
               <li>Hyper Backup on DSM 7, seen working with versions 4.1.2 and 4.2.2</li>
               <li>LZ4-compressed chunks</li>
               <li>Client-side encryption, unlocked with the password</li>
-              <li>Many backup versions; hbkit reads the newest</li>
+              <li>Many backup versions; pick one with <code>--version</code> or a date</li>
             </ul>
             <p class="note"><strong>Not yet:</strong> older RSA-encrypted archives, unlocking with the key file, and files stored by whole-file dedup (1 in 501,278 in the reference archive).</p>
           </div>
@@ -354,7 +354,7 @@
           </details>
           <details>
             <summary>Can it restore an older backup version?</summary>
-            <p>Not yet. hbkit always reads the newest version in the archive.</p>
+            <p>Yes. hbkit reads the newest complete version by default; <code>hbk &lt;archive&gt; versions</code> lists them all, and <code>--version N</code> or <code>--version @2026-10-15</code> picks another for <code>list</code>, <code>get</code>, <code>verify</code>, <code>doctor</code> and the TUI.</p>
           </details>
           <details>
             <summary>What if doctor fails on my archive?</summary>

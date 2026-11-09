@@ -57,7 +57,7 @@ def worker_main(job_path: str) -> int:
                 arc.extract(ovf, size, verify=True, on_bytes=lambda n: emit(k="P", b=n))
                 emit(k="O", p=rel)
                 continue
-            if mf.is_complete(dest, rel, size, known, verify=strict):
+            if mf.is_complete(dest, rel, size, known, verify=strict, ovf=ovf):
                 emit(k="S", b=size, p=rel)
                 continue
             d = os.path.dirname(target)
@@ -79,10 +79,12 @@ def worker_main(job_path: str) -> int:
             with open(tmp, "wb") as fh:
                 arc.extract(ovf, size, verify=verify, out=_Tee(fh),
                             on_bytes=lambda n: emit(k="P", b=n))
+            if rel in known:               # the old record must not outlive its bytes
+                mf.void(dest, rel)
             os.replace(tmp, target)
             if mtime:
                 os.utime(target, (mtime, mtime))
-            mf.append(dest, rel, size, h.hexdigest())
+            mf.append(dest, rel, size, h.hexdigest(), ovf=ovf)
             emit(k="O", p=rel)
         except Exception as e:                               # noqa: BLE001 - report, continue
             emit(k="E", p=rel, m=f"{type(e).__name__}: {e}")

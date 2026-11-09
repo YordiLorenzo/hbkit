@@ -7,8 +7,8 @@ where a directory's `size`/`nfiles` are SUBTREE totals, so a UI can show folder 
 without walking children. Synology sidecar metadata (@eaDir, @SynoEAStream,
 @SynoResource) is pruned - it is not user data.
 
-Indexes are cached per archive under ~/.cache/hbkit/ and rebuilt automatically
-when the archive's share databases change.
+Indexes are cached per archive and per backup version under ~/.cache/hbkit/ and rebuilt
+automatically when the archive's share databases change.
 """
 from __future__ import annotations
 
@@ -41,22 +41,65 @@ def is_sidecar(name: str) -> bool:
 
 
 def fingerprint(arc: hbk.Archive) -> str:
-    """Changes whenever any share database changes, so a stale index rebuilds itself."""
-    h = hashlib.sha1(f"v{SCHEMA}|{arc.root}|enc={arc.crypto is not None}".encode())
+    """Changes whenever the selected version, or any share database it reads, changes,
+    so a stale index rebuilds itself and two versions never share one."""
+    h = hashlib.sha1(f"v{SCHEMA}|{arc.root}|enc={arc.crypto is not None}"
+                     f"|version={_version(arc)}".encode())
     for share in arc.shares():
         try:
             p = arc.share_db(share)
             st = os.stat(p)
-            h.update(f"|{share}:{st.st_size}:{int(st.st_mtime)}".encode())
+            h.update(f"|{share}:{os.path.basename(p)}:{st.st_size}:{int(st.st_mtime)}".encode())
         except FileNotFoundError:
             h.update(f"|{share}:missing".encode())
     return h.hexdigest()[:16]
 
 
-def cache_path(arc: hbk.Archive) -> str:
+def _version(arc) -> int | None:
+    """The version the index is built from. The default and an explicit --version naming
+    the same version resolve alike, so they share one index."""
+    sel = getattr(arc, "selected_version", None)
+    return sel() if sel else getattr(arc, "version", None)
+
+
+def _safe_name(arc) -> str:
     safe = os.path.basename(arc.root.rstrip("/")) or "archive"
-    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in safe)
-    return os.path.join(CACHE, f"{safe}-{fingerprint(arc)}.db")
+    return "".join(c if c.isalnum() or c in "-._" else "_" for c in safe)
+
+
+def cache_path(arc: hbk.Archive) -> str:
+    ver = _version(arc)
+    tag = f"-v{ver}" if ver is not None else ""
+    return os.path.join(CACHE, f"{_safe_name(arc)}{tag}-{fingerprint(arc)}.db")
+
+
+def _prune_stale(arc: hbk.Archive, keep: str) -> None:
+    """Delete this archive's indexes that can never be used again: older builds of the
+    same version, versions no longer in the archive (rotated away by retention), and
+    indexes from before versions were tracked. Each index names its archive in its meta
+    table, so another archive with the same directory name is never touched, and the
+    indexes of versions still present stay valid."""
+    import glob
+
+    ver = _version(arc)
+    want = "" if ver is None else str(ver)
+    present = {str(v) for s in arc.shares() for v in arc.share_versions(s)}
+    for p in glob.glob(os.path.join(glob.escape(CACHE), f"{glob.escape(_safe_name(arc))}-*.db")):
+        if os.path.abspath(p) == os.path.abspath(keep):
+            continue
+        try:
+            db = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+            meta = dict(db.execute("SELECT key, value FROM meta").fetchall())
+            db.close()
+        except sqlite3.Error:
+            continue
+        mv = meta.get("version")
+        stale = mv is None or mv == want or (mv != "" and mv not in present)
+        if meta.get("root") == arc.root and stale:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def is_current(arc: hbk.Archive) -> bool:
@@ -100,6 +143,7 @@ def _stage_local(src: str, cache_dir: str, progress=None, label: str = "") -> tu
 
 def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
     """Build (or rebuild) the index. `progress(stage, done, total)` is called as it goes."""
+    cached = out is None or os.path.abspath(out) == os.path.abspath(cache_path(arc))
     out = out or cache_path(arc)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     tmp = out + ".building"
@@ -212,12 +256,15 @@ def build(arc: hbk.Archive, out: str | None = None, progress=None) -> str:
     """)
     db.executemany("INSERT INTO meta VALUES (?,?)", [
         ("root", arc.root), ("schema", str(SCHEMA)),
+        ("version", "" if _version(arc) is None else str(_version(arc))),
         ("fingerprint", fingerprint(arc)), ("built", str(int(time.time()))),
         ("complete", "1"),
     ])
     db.commit()
     db.close()
     os.replace(tmp, out)
+    if cached:                  # an export elsewhere leaves the cache alone
+        _prune_stale(arc, out)
     return out
 
 

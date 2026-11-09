@@ -49,11 +49,16 @@ def human(n):
     return f"{n:,.1f}T"
 
 
-def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = None) -> Report:
+def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = None,
+             version: str | int | None = None, allow_incomplete: bool = False) -> Report:
     r = Report()
 
     try:
-        arc = hbk.Archive(path, password=password)
+        arc = hbk.Archive(path, password=password, version=version,
+                          allow_incomplete=allow_incomplete)
+    except hbk.VersionNotFound as e:
+        r.blockers.append(f"version: {e}")
+        return r
     except hbk.UnsupportedArchive as e:
         r.blockers.append(f"unsupported layout: {e}")
         return r
@@ -121,21 +126,46 @@ def diagnose(path: str, sample: int = 10, seed: int = 0, password: str | None = 
     r.fact("shares", ", ".join(shares) or "(none)")
     if not shares:
         r.blockers.append("no shares found under Config/@Share")
-    multi = []
+    try:
+        versions = {v.id: v for v in arc.versions()}
+    except hbk.UnsupportedArchive as e:
+        versions = {}
+        r.warnings.append(f"cannot read backup versions: {e}")
+    try:
+        vid = arc.selected_version()
+    except (hbk.VersionNotFound, hbk.UnsupportedArchive) as e:
+        r.blockers.append(f"version: {e}")
+        arc.close()
+        return r
+    v = versions.get(vid)
+    r.fact("backup versions", len(versions) or "?")
+    if v is not None:
+        when = (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(v.timestamp))
+                if v.timestamp is not None else "date unknown")
+        r.fact("reading version", f"{v.id} ({when}, {v.status or 'status unknown'})"
+                                  + ("" if arc.version is not None else
+                                     " - newest" if arc.allow_incomplete else
+                                     " - newest complete"))
+    if len(versions) > 1 and arc.version is None:
+        which = "newest" if arc.allow_incomplete else "newest complete"
+        r.warnings.append(f"{len(versions)} backup versions present; checking the {which} "
+                          "one - pick another with --version (see `versions`)")
     for s in shares:
-        vs = arc.share_versions(s)
-        if len(vs) > 1:
-            multi.append(f"{s}={vs}")
-    if multi:
-        r.warnings.append("multiple backup versions present; hbkit reads the newest: "
-                          + "; ".join(multi))
+        try:
+            arc.share_version(s)
+        except FileNotFoundError as e:
+            r.warnings.append(f"share {s}: {e}")
 
     # --- prove it by actually rebuilding files ---------------------------
     if not r.blockers:
         picked = []
         for s in shares:
             try:
-                db = sqlite3.connect(f"file:{arc.share_db(s)}?immutable=1", uri=True)
+                db_path = arc.share_db(s)
+            except FileNotFoundError:
+                continue                                     # warned about above
+            try:
+                db = sqlite3.connect(f"file:{db_path}?immutable=1", uri=True)
                 rows = db.execute(
                     "SELECT file_name,size,off_virtual_file,mode FROM version_list "
                     "WHERE size>0 AND off_virtual_file>=0").fetchall()

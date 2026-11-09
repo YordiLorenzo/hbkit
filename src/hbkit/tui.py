@@ -246,9 +246,11 @@ def scan_for_archives(roots=None) -> list[str]:
 class ArchiveScreen(Screen):
     BINDINGS = [Binding("enter", "open", "Open")]   # ctrl+q quits; plain q must stay typable
 
-    def __init__(self, initial: str | None = None):
+    def __init__(self, initial: str | None = None, version: str | int | None = None,
+                 allow_incomplete: bool = False):
         super().__init__()
         self.initial = initial
+        self.version, self.allow_incomplete = version, allow_incomplete
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -303,7 +305,8 @@ class ArchiveScreen(Screen):
             return
         pw = pw_field.value or None
         try:
-            arc = hbk.Archive(path, password=pw)
+            arc = hbk.Archive(path, password=pw, version=self.version,
+                              allow_incomplete=self.allow_incomplete)
         except hbk.NeedPassword:
             pw_field.remove_class("hidden")
             w.update(Text("\U0001f512 encrypted archive - enter the password above",
@@ -328,6 +331,21 @@ class ArchiveScreen(Screen):
         if cfg.get("name"):
             lines.append(f"  task    {cfg['name']}   host {cfg.get('host_name','?')}\n", style="dim")
         lines.append(f"  shares  {', '.join(arc.shares()) or '(none)'}\n", style="dim")
+        try:
+            vid = arc.selected_version()
+        except (hbk.VersionNotFound, hbk.UnsupportedArchive) as e:
+            w.update(Text(str(e), style="red"))
+            self._arc = None
+            return
+        if vid is not None:
+            vs = {v.id: v for v in arc.versions()}
+            v = vs.get(vid)
+            stamp = "" if v is None or v.timestamp is None else " " + time.strftime(
+                "%Y-%m-%d %H:%M", time.localtime(v.timestamp))
+            lines.append(f"  version {vid}{stamp}"
+                         + ("" if arc.version is not None else
+                            " (newest)" if arc.allow_incomplete else " (newest complete)")
+                         + f" of {len(vs)}\n", style="dim")
         comp = {"0": "none", "1": "lz4", "2": "lz4-hc", "4": "zlib"}.get(
             cfg.get("data_compress_type", ""), cfg.get("data_compress_type", "?"))
         lines.append(f"  codec   {comp}", style="dim")
@@ -779,14 +797,16 @@ class HBKApp(App):
     # priority so no screen or widget can eat it.
     BINDINGS = [Binding("ctrl+q", "quit", "Quit", priority=True, show=True)]
 
-    def __init__(self, n_workers: int, initial: str | None = None):
+    def __init__(self, n_workers: int, initial: str | None = None,
+                 version: str | int | None = None, allow_incomplete: bool = False):
         super().__init__()
         self.n_workers = n_workers
         self.initial = initial
+        self.version, self.allow_incomplete = version, allow_incomplete
 
     def on_mount(self):
         self.theme = "nord"
-        self.push_screen(ArchiveScreen(self.initial))
+        self.push_screen(ArchiveScreen(self.initial, self.version, self.allow_incomplete))
 
 
 def main():
@@ -794,8 +814,13 @@ def main():
     ap = argparse.ArgumentParser(description="TUI recovery for Synology Hyper Backup archives")
     ap.add_argument("archive", nargs="?", help="path to a .hbk archive or a drive holding one")
     ap.add_argument("-j", "--workers", type=int, default=8, help="parallel workers (default 8)")
+    ap.add_argument("--version", dest="backup_version",
+                    help="backup version to open: N or @YYYY-MM-DD[ HH:MM] (default newest)")
+    ap.add_argument("--allow-incomplete", action="store_true",
+                    help="also accept a version whose backup did not finish")
     a = ap.parse_args()
-    HBKApp(a.workers, a.archive).run()
+    HBKApp(a.workers, a.archive, version=a.backup_version,
+           allow_incomplete=a.allow_incomplete).run()
 
 
 if __name__ == "__main__":
