@@ -86,9 +86,9 @@ For encrypted archives pass `-p/--password`, set `HBK_PASSWORD`, or let it promp
 shows a password field when it detects encryption.
 
 `<archive>` is a `.hbk` directory, or any drive or folder containing one — it will find it.
-Globs match the full archive path, which begins with the share name. `list` takes either
-plain text (case-insensitive substring) or, if it contains `*`, `?` or `[`, the same glob
-`get` would use.
+Globs match the full archive path, which begins with a slash and the share name
+(`"/Photos/*"`, not `"Photos/*"`). `list` takes either plain text (case-insensitive
+substring) or, if it contains `*`, `?` or `[`, the same glob `get` would use.
 
 ### Backup versions
 
