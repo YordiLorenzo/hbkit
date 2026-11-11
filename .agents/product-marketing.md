@@ -31,7 +31,7 @@ Synology owners with a Hyper Backup on a USB disk, another NAS, or an S3, B2 or 
 - Windows: CI restores test archives on Windows; no backup from a real NAS has been restored on Windows yet.
 - The big reference archive is "3 TB".
 - No em or en dashes, no marketing words (seamless, powerful, effortless), no "guaranteed". Plain short sentences.
-- Text in the maintainer's own voice (Reddit, forums, emails): lowercase, short, a few typos, and it says he is the author.
+- Text in the maintainer's own voice (Reddit, forums, emails): normal sentences with capitals and apostrophes, short replies loose, never an added typo, and it says he is the author (decided 2026-11-11).
 
 ## Proof (quote only with consent on record)
 
