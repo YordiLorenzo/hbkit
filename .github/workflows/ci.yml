@@ -25,14 +25,21 @@ jobs:
       - name: Install liblz4 (macOS)
         if: runner.os == 'macOS'
         run: brew install lz4 || true
+      - name: Install liblz4 (Windows)
+        # The official lz4 Windows zips ship no standalone DLL, so build it with the
+        # runner's vcpkg and point hbkit at it.
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install lz4:x64-windows
+          "HBK_LZ4=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\lz4.dll" >> $env:GITHUB_ENV
       - run: pip install -e ".[dev]"
       - name: Tests
         # archive-dependent tests skip automatically without HBK_TEST_ARCHIVE
         run: pytest tests -v
       - name: liblz4 is reachable
-        # Windows has no system liblz4; extraction there is unverified, so we only
-        # check that the package imports and the CLI runs.
-        if: runner.os != 'Windows'
+        # Without it the synthetic-archive extraction tests skip, so a green run
+        # would prove nothing. Fail instead.
         run: python -c "from hbkit.archive import lz4; lz4(); print('liblz4 OK')"
 
   build:
