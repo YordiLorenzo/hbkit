@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.2
+
+No change to how hbkit reads or restores archives.
+
+- CI now restores the synthetic test archives on Windows too, with liblz4 built by vcpkg.
+  The README says what that does and doesn't prove.
+- The project page links the new site guides: restoring without a NAS, damaged backups,
+  and Apple silicon Macs.
+- PyPI metadata: the homepage is the site, Python 3.10 to 3.13 are listed, more keywords.
+
 ## 0.5.1
 
 ### Fixed

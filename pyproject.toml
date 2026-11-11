@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hbkit"
-version = "0.5.1"
+version = "0.5.2"
 description = "Recover files from Synology Hyper Backup (.hbk) archives without Synology software"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "YordiLorenzo", email = "yordilorenzo@gmail.com" }]
-keywords = ["synology", "hyper-backup", "hbk", "backup", "recovery",
-            "data-recovery", "nas", "dsm", "extract"]
+keywords = ["synology", "hyper-backup", "hyperbackup", "hyper-backup-explorer", "hbk",
+            "backup", "recovery", "data-recovery", "nas", "dsm", "extract"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -21,6 +21,10 @@ classifiers = [
   "Operating System :: MacOS",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: System :: Archiving :: Backup",
   "Topic :: System :: Recovery Tools",
 ]
@@ -30,7 +34,8 @@ dependencies = ["textual>=0.80", "pynacl>=1.5", "cryptography>=41"]
 dev = ["pytest>=7"]
 
 [project.urls]
-Homepage = "https://github.com/YordiLorenzo/hbkit"
+Homepage = "https://yordilorenzo.github.io/hbkit/"
+Documentation = "https://yordilorenzo.github.io/hbkit/restore-without-nas/"
 Source = "https://github.com/YordiLorenzo/hbkit"
 Issues = "https://github.com/YordiLorenzo/hbkit/issues"
 "Format spec" = "https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md"

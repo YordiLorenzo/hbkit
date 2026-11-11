@@ -23,6 +23,10 @@ hbk-tui /Volumes/Backup                 # browse and select interactively
 hbk /Volumes/Backup get "/Photos/*" ~/restore
 ```
 
+![hbk doctor, versions and get, run on a test archive](docs/images/demo.gif)
+
+*Real output on a small test archive that hbkit's own tests build, not a backup from a NAS.*
+
 ### Other ways to install
 
 ```sh
