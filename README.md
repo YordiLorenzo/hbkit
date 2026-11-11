@@ -12,7 +12,7 @@ Point it at a backup on a local disk, an external drive, or a network mount, bro
 a tree, and pull out what you want. Works headless on Linux and macOS, including Apple silicon, where Synology's
 own Hyper Backup Explorer is awkward or unavailable.
 
-Website: **[yordilorenzo.github.io/hbkit](https://yordilorenzo.github.io/hbkit/)**
+Website: **[hbkit.dev](https://hbkit.dev/)**
 
 ```sh
 brew install YordiLorenzo/tap/hbkit     # macOS / Linux, pulls in liblz4 for you
@@ -45,9 +45,9 @@ for you. Otherwise: `brew install lz4`, `sudo apt install liblz4-1`, or
 ### Restore without a NAS
 
 The step-by-step guide is on the site:
-[Restore a Hyper Backup without a Synology NAS](https://yordilorenzo.github.io/hbkit/restore-without-nas/).
+[Restore a Hyper Backup without a Synology NAS](https://hbkit.dev/restore-without-nas/).
 If Hyper Backup says the backup is corrupted, start with
-[what you can still recover](https://yordilorenzo.github.io/hbkit/damaged-backup/).
+[what you can still recover](https://hbkit.dev/damaged-backup/).
 
 hbkit never writes to the archive. If it is your only copy, copy the whole `.hbk` folder
 to another disk first and run hbkit on the copy.

@@ -34,8 +34,8 @@ dependencies = ["textual>=0.80", "pynacl>=1.5", "cryptography>=41"]
 dev = ["pytest>=7"]
 
 [project.urls]
-Homepage = "https://yordilorenzo.github.io/hbkit/"
-Documentation = "https://yordilorenzo.github.io/hbkit/restore-without-nas/"
+Homepage = "https://hbkit.dev/"
+Documentation = "https://hbkit.dev/restore-without-nas/"
 Source = "https://github.com/YordiLorenzo/hbkit"
 Issues = "https://github.com/YordiLorenzo/hbkit/issues"
 "Format spec" = "https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md"

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://yordilorenzo.github.io/hbkit/sitemap.xml
+Sitemap: https://hbkit.dev/sitemap.xml
