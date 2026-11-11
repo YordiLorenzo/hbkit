@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Restore a Hyper Backup without a Synology NAS | hbkit</title>
+  <meta name="description" content="Get your files out of a Synology Hyper Backup (.hbk) on a Mac or Linux computer, with no NAS. Five steps, the limits, and the other ways to do it.">
+  <link rel="canonical" href="https://yordilorenzo.github.io/hbkit/restore-without-nas/">
+  <meta name="theme-color" content="#06090C">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="hbkit">
+  <meta property="og:title" content="Restore a Hyper Backup without a Synology NAS | hbkit">
+  <meta property="og:description" content="Get your files out of a Synology Hyper Backup (.hbk) on a Mac or Linux computer, with no NAS. Five steps, the limits, and the other ways to do it.">
+  <meta property="og:url" content="https://yordilorenzo.github.io/hbkit/restore-without-nas/">
+  <meta property="og:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="hbkit: your backup, without the NAS. The terminal browser shows a backup's folders.">
+  <meta property="article:modified_time" content="2026-11-11">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Restore a Hyper Backup without a Synology NAS | hbkit">
+  <meta name="twitter:description" content="Get your files out of a Synology Hyper Backup (.hbk) on a Mac or Linux computer, with no NAS. Five steps, the limits, and the other ways to do it.">
+  <meta name="twitter:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <link rel="icon" href="../images/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="../favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+  <link rel="preload" href="../fonts/outfit.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../style.css">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "Restore a Hyper Backup without a Synology NAS", "description": "Get your files out of a Synology Hyper Backup (.hbk) on a Mac or Linux computer, with no NAS. Five steps, the limits, and the other ways to do it.", "url": "https://yordilorenzo.github.io/hbkit/restore-without-nas/", "mainEntityOfPage": "https://yordilorenzo.github.io/hbkit/restore-without-nas/", "dateModified": "2026-11-11", "image": "https://yordilorenzo.github.io/hbkit/social-preview.png", "author": {"@type": "Organization", "name": "hbkit", "url": "https://yordilorenzo.github.io/hbkit/"}}</script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href=".././" aria-label="hbkit, home">
+        <img src="../images/icon.svg" alt="" width="34" height="34">
+        hbkit
+      </a>
+      <nav aria-label="Sections">
+        <ul class="nav">
+          <li class="nav-wide"><a href="../#features">Features</a></li>
+          <li><a href="../#install">Install</a></li>
+          <li><a href="../#faq">FAQ</a></li>
+          <li><details class="guide-menu"><summary>Guides</summary><ul><li><a href="../restore-without-nas/">Restore without a NAS</a></li><li><a href="../damaged-backup/">Damaged backups</a></li><li><a href="../mac/">Apple silicon Macs</a></li></ul></details></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+
+  <main id="main">
+    <article class="wrap guide">
+      <header class="guide-header"><h1>Restore a Hyper Backup without a Synology NAS</h1></header>
+      <div class="guide-body">
+<p>This guide is for you if your NAS is gone and the backup is all you have. The backup is a folder whose name ends in <code>.hbk</code>, on a USB disk, a NAS share or a cloud bucket. The guide is also for you if you want to prove that your backup restores before you need it.</p>
+<p class="guide-warning">If the disk is slow, clicks or shows SMART errors, stop. Image it or send it to a recovery lab, then run hbkit on the copy.</p>
+<p>hbkit never writes to the archive. If it is your only copy, copy the whole .hbk folder to another disk first and run hbkit on the copy.</p>
+<p>hbkit is an open reader for your own backups. It is free and open source (MIT), and reads <code>.hbk</code> archives directly, with no Synology software. It has restored a 3 TB archive byte-exact. Its <code>doctor</code> command checks the layout and rebuilds a sample of files before you restore anything:</p>
+<figure class="term-figure">
+  <div class="term">
+    <div class="term-bar"><i></i><i></i><i></i><span>hbk doctor</span></div>
+<pre><span class="p">$ </span><span class="cmd-line">hbk demo/synth.hbk doctor</span>
+<span class="k">          chunk codec :</span> lz4
+<span class="k">            encrypted :</span> no
+<span class="k">               shares :</span> Documents, Photos
+<span class="k">      backup versions :</span> 3
+<span class="k">      reading version :</span> 3 (2026-10-28 08:33:20, Complete) - newest complete
+
+  <span class="ok">PASS</span>  virtual_file layout known  (56 B)
+  <span class="ok">PASS</span>  chunk_index layout known  (29 B)
+  <span class="ok">PASS</span>  bucket layout known  (32 B)
+  <span class="ok">PASS</span>  rebuilt 6 sampled files, all chunks verified  (6 ok, 0 failed)
+
+  <span class="v">VERDICT: recoverable.</span> Sampled files rebuilt byte-exact and checksum-verified.</pre>
+  </div>
+  <figcaption class="term-caption">Real hbkit output, shortened. The archive is a small one that hbkit's own tests build, not one from a NAS.</figcaption>
+</figure>
+<p>When the answer is no, the verdict says so: &quot;cannot be recovered by this tool&quot; or &quot;do not trust output&quot;. After you install it, hbkit works offline for a local disk and sends nothing anywhere. It never writes to the archive.</p>
+<h2 id="what-hbkit-can-t-do-yet">What hbkit can&#x27;t do yet</h2>
+<ul><li><strong>Synology C2 Storage:</strong> Not tested yet. Use Hyper Backup Explorer or C2 Storage Explorer in the C2 web portal.</li><li><strong>Entire System backups and DSM settings:</strong> hbkit restores files and folders. To put a whole system or its settings back, you need a Synology NAS.</li><li><strong>Damaged or encrypted files in <code>Config/</code></strong>, for example after ransomware: hbkit needs the file index in <code>Config/</code> and stops without it.</li><li><strong>Key-file access:</strong> not supported. Use the password. Hyper Backup Explorer is the right tool if you only have the key file.</li><li><strong>Older RSA-encrypted archives:</strong> not supported. Use Hyper Backup Explorer.</li><li><strong>Restore on Windows:</strong> On Windows, CI restores test archives byte-exact on every change. A backup from a real NAS has not been restored on Windows yet.</li></ul>
+<h2 id="five-steps">Five steps</h2>
+<h3 id="1-copy-the-whole-hbk-folder-first">1. Copy the whole .hbk folder first</h3>
+<p>The backup is a folder such as <code>nas_1.hbk</code>, with <code>Config/</code> and <code>Pool/</code> inside. The file <code>SynologyHyperBackup.bkpi</code> is only a marker, and it can be empty. Your data is in <code>Pool/</code>. The file names and folders are in <code>Config/</code>. If you copy the backup, copy the whole <code>.hbk</code> folder, not only the <code>.bkpi</code> file.</p>
+<p>hbkit never writes to the archive. If it is your only copy, copy the whole .hbk folder to another disk first and run hbkit on the copy. For a bucket, a copy on a local disk is much faster.</p>
+<h3 id="2-install-hbkit">2. Install hbkit</h3>
+<div class="term"><pre><code>brew install YordiLorenzo/tap/hbkit</code></pre></div>
+<p>Homebrew works on macOS and Linux, and it installs liblz4 for you. Without Homebrew, use pipx (or pip) and install liblz4 yourself:</p>
+<div class="term"><pre><code>pipx install hbkit
+sudo apt install liblz4-1      # or: brew install lz4, sudo pacman -S lz4</code></pre></div>
+<p>hbkit needs Python 3.10 or newer.</p>
+<h3 id="3-check-the-archive-with-doctor">3. Check the archive with doctor</h3>
+<div class="term"><pre><code>hbk /Volumes/Backup doctor</code></pre></div>
+<p>Give it the <code>.hbk</code> folder, or any disk or folder that holds one. <code>doctor</code> reads the layout and rebuilds a sample of real files. It checks each of their chunks against the MD5 and CRC32 stored in the archive. For an encrypted archive, add <code>-p</code> and the password or set <code>HBK_PASSWORD</code>. <code>doctor</code> does not prompt for a password.</p>
+<p>If the verdict is not &quot;recoverable&quot;, do not restore yet. <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/new">Open an issue</a> and paste the output. The fixes in 0.4.5 and 0.4.6 came from reports like that (<a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/1">#1</a>, <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/4">#4</a>).</p>
+<h3 id="4-pick-the-backup-version">4. Pick the backup version</h3>
+<div class="term"><pre><code>hbk /Volumes/Backup versions</code></pre></div>
+<p>This lists every backup version with its start time and status, and marks the default. It needs no password. hbkit reads the newest complete version unless you choose another. <code>--version 12</code> reads version 12. <code>--version @2026-10-15</code> reads the newest complete version that started by the end of that day:</p>
+<div class="term"><pre><code>hbk /Volumes/Backup list invoice --version @2026-10-15</code></pre></div>
+<h3 id="5-restore">5. Restore</h3>
+<p>To tick folders in a full-screen browser:</p>
+<div class="term"><pre><code>hbk-tui /Volumes/Backup</code></pre></div>
+<p>Press <code>space</code> to tick a folder, <code>d</code> to choose the destination and <code>r</code> to start the restore. Before you start, it warns you if the selection will not fit. Or use one command:</p>
+<div class="term"><pre><code>hbk /Volumes/Backup get &quot;/Photos/*&quot; ~/restore</code></pre></div>
+<p>Paths start with a slash and the share name. Files go to <code>~/restore/Photos/...</code> with their original dates. If the restore stops, run the same command again. It skips the files that are complete.</p>
+<h2 id="where-the-backup-is-stored">Where the backup is stored</h2>
+<div class="guide-table"><table><thead><tr><th scope="col">Where</th><th scope="col">Point hbkit at</th><th scope="col">What to know</th></tr></thead><tbody><tr><th scope="row" data-label="Where">USB or external disk</th><td data-label="Point hbkit at">The disk, for example <code>/Volumes/Backup</code></td><td data-label="What to know">Faster than a share or a bucket. From a USB hard disk that reads 92 MB/s at most, a restore ran at 58 MB/s.</td></tr><tr><th scope="row" data-label="Where">NAS share</th><td data-label="Point hbkit at">The mounted share</td><td data-label="What to know">Works like a local folder. The first index of 1.1 million files took about 48 s, against about 10 s from a local disk.</td></tr><tr><th scope="row" data-label="Where">S3, R2 or B2 bucket</th><td data-label="Point hbkit at">An rclone mount: <code>hbk mount r2:mybucket ~/mnt/backup</code></td><td data-label="What to know">Much slower than a disk. Use <code>-j 16</code>. Copy the archive down first if you can.</td></tr><tr><th scope="row" data-label="Where">Encrypted, in any of these places</th><td data-label="Point hbkit at">The same path, with <code>-p</code>, <code>HBK_PASSWORD</code> or the prompt</td><td data-label="What to know">Password only.</td></tr><tr><th scope="row" data-label="Where">Synology C2 Storage</th><td data-label="Point hbkit at">Not tested yet with hbkit</td><td data-label="What to know">Use Hyper Backup Explorer or C2 Storage Explorer.</td></tr></tbody></table></div>
+<h2 id="ways-to-get-the-files-back">Ways to get the files back</h2>
+<p>hbkit is not always the right tool.</p>
+<div class="guide-table"><table><thead><tr><th scope="col">Way</th><th scope="col">Runs on</th><th scope="col">Price</th><th scope="col">Limits</th><th scope="col">Right when</th></tr></thead><tbody><tr><th scope="row" data-label="Way">Hyper Backup Explorer (Synology)</th><td data-label="Runs on">Windows, macOS, Ubuntu. The Mac and Linux builds of 3.0.1 are x86-64 only.</td><td data-label="Price">Free</td><td data-label="Limits">No command line. Last release 2023-04-13. Apple says Rosetta, which runs Intel apps on Apple silicon, stays available for all apps only through macOS 27. <a class="text-link" href="https://support.apple.com/en-us/102527">Apple’s notice</a>.</td><td data-label="Right when">Windows or an Intel Mac, a C2 backup, or an archive that hbkit does not support. It also reads any backup version.</td></tr><tr><th scope="row" data-label="Way">Explorer on a mounted bucket</th><td data-label="Runs on">Windows or Mac, with Mountain Duck or rclone</td><td data-label="Price">Mountain Duck: paid. rclone: free.</td><td data-label="Limits">The limits of Explorer, and every read crosses the network. We did not test rclone with Explorer.</td><td data-label="Right when">You want a desktop app and the bucket is too big to download. <a class="text-link" href="https://jakewright.net/posts/browsing-synology-hyper-backup/">Jake Wright</a> did this with B2 and Mountain Duck.</td></tr><tr><th scope="row" data-label="Way">A new Synology NAS</th><td data-label="Runs on">Synology hardware</td><td data-label="Price">A NAS and drives</td><td data-label="Limits">Time to buy and set up. Then in Hyper Backup: Restore &gt; Data &gt; Restore from existing repositories.</td><td data-label="Right when">You need an Entire System backup or DSM settings back. Synology says the new model must be the same or newer, with at least as many drives.</td></tr><tr><th scope="row" data-label="Way">A second Synology that runs Hyper Backup Vault</th><td data-label="Runs on">That NAS</td><td data-label="Price">Free if you have it</td><td data-label="Limits">Vault does not restore. Use the Hyper Backup app on that NAS: Restore &gt; Data.</td><td data-label="Right when">Your backup went to that NAS and it still works.</td></tr><tr><th scope="row" data-label="Way">Virtual DSM</th><td data-label="Runs on">Virtual Machine Manager on a Synology NAS</td><td data-label="Price">Needs a Synology NAS</td><td data-label="Limits">The <a class="text-link" href="https://github.com/vdsm/virtual-dsm">vdsm/virtual-dsm</a> Docker container also says &quot;only run this container on Synology hardware&quot;.</td><td data-label="Right when">Seldom. On a Synology NAS, Hyper Backup itself is simpler.</td></tr><tr><th scope="row" data-label="Way">C2 Storage Explorer, in the C2 web portal</th><td data-label="Runs on">A web browser</td><td data-label="Price">Part of your C2 plan</td><td data-label="Limits"><a class="text-link" href="https://www.synology.com/en-us/dsm/7.4/software_spec/hyper_backup">Synology</a>: &quot;A single folder can be downloaded up to 20 times per day.&quot; Encrypted shared folders do not show.</td><td data-label="Right when">Your backup is in C2 and you need a few files.</td></tr><tr><th scope="row" data-label="Way"><a class="text-link" href="https://github.com/Niels-van-Haren-Holding-B-V/callido-restore">Callido Restore</a></th><td data-label="Runs on">macOS, Windows 10 and 11, a Synology NAS, Docker</td><td data-label="Price">Free (MIT)</td><td data-label="Limits">Created 2026-10-30. Apps not signed or notarized. No client-side encryption yet. Not reviewed by us.</td><td data-label="Right when">An unencrypted archive that ransomware partly encrypted: since 1.3.1 it skips the encrypted parts and restores what is left. Or you want a desktop app with a timeline.</td></tr><tr><th scope="row" data-label="Way">hbkit</th><td data-label="Runs on">macOS (Apple silicon and Intel), Linux. On Windows, CI restores test archives byte-exact on every change. A backup from a real NAS has not been restored on Windows yet.</td><td data-label="Price">Free (MIT)</td><td data-label="Limits">A terminal app: a command line and a full-screen browser. See <a class="text-link" href="#what-hbkit-can-t-do-yet">what hbkit can&#x27;t do yet</a>.</td><td data-label="Right when">Apple silicon, a headless server, a bucket, an encrypted archive, scripts, or when you want every chunk checked.</td></tr><tr><th scope="row" data-label="Way">A data recovery lab</th><td data-label="Runs on">Their lab</td><td data-label="Price">A quote for each case</td><td data-label="Limits">Money and time.</td><td data-label="Right when">The disk is failing. Ask for a copy of the disk, then use a tool above on the copy.</td></tr></tbody></table></div>
+<p>The README names two more open source readers under <a class="text-link" href="https://github.com/YordiLorenzo/hbkit#prior-art">Prior art</a>.</p>
+<h2 id="linux-without-a-desktop">Linux, without a desktop</h2>
+<p>Synology&#x27;s Explorer for Linux is a desktop app for x86-64 only. On a server, use hbkit over SSH:</p>
+<div class="term"><pre><code>pipx install hbkit
+sudo apt install liblz4-1
+hbk /mnt/backup doctor
+hbk /mnt/backup get &quot;/Documents/*&quot; /srv/restore</code></pre></div>
+<p><code>hbk-tui</code> runs in the terminal, so it also works over SSH. For a restore test from cron, <code>doctor</code> exits with 0 when the archive is recoverable and 1 when it is not. <code>verify</code> checks files without restoring them. It can write a local index cache, but never changes the archive. The README lists every exit code.</p>
+<h2 id="restore-from-a-bucket">Restore from a bucket</h2>
+<p>Mount the bucket with rclone and point hbkit at the mount. <code>hbk mount</code> sets the rclone flags that matter and loads the folder listings once, at the start. It stores no keys. <code>rclone config</code> keeps them.</p>
+<div class="guide-table"><table><thead><tr><th scope="col">A 3 TB archive in Cloudflare R2</th><th scope="col">Before tuning</th><th scope="col">With <code>hbk mount</code></th></tr></thead><tbody><tr><th scope="row" data-label="A 3 TB archive in Cloudflare R2">Mount and load the folder listings</th><td data-label="Before tuning">about 12 min</td><td data-label="With hbk mount">16 s</td></tr><tr><th scope="row" data-label="A 3 TB archive in Cloudflare R2">Open the archive</th><td data-label="Before tuning">9 min 21 s</td><td data-label="With hbk mount">1.8 s</td></tr><tr><th scope="row" data-label="A 3 TB archive in Cloudflare R2">Restore a 10 KB file</th><td data-label="Before tuning">584 s</td><td data-label="With hbk mount">11 s</td></tr></tbody></table></div>
+<p>From R2, a restore ran at about 9.5 MB/s with <code>-j 16</code>. Decompressing and checking took 0.7% of the time, in that measurement. From Backblaze B2, a contributor rebuilt a 74,396,840-byte video exactly, with 9,072 chunks checked (<a class="text-link" href="https://github.com/YordiLorenzo/hbkit/pull/3">PR #3</a>). Start with one small folder and watch the speed.</p>
+<h2 id="encrypted-archives">Encrypted archives</h2>
+<p>hbkit reads archives with Hyper Backup&#x27;s client-side encryption, with the password. It derives the public key from the password and compares it with the key in the archive. A wrong password is rejected before any data is read.</p>
+<ul><li><code>versions</code> needs no password, because the version list is not encrypted.</li><li>The index cache in <code>~/.cache/hbkit</code> holds the decrypted file names, not the contents. Delete it after the restore if that matters to you.</li><li>Tested on a small encrypted archive from Hyper Backup 4.1.2 and a 7-version encrypted archive from Hyper Backup 4.2.2 (<a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/4">#4</a>).</li><li>Not supported: access with the key file, and older RSA-encrypted archives. Use Hyper Backup Explorer for those.</li></ul>
+<h2 id="leaving-synology">Leaving Synology</h2>
+<p><a class="text-link" href="https://www.synology.com/en-us/dsm/7.4/software_spec/hyper_backup">Synology&#x27;s spec page</a> says multi-version backups &quot;can be read only with Hyper Backup, Hyper Backup Explorer, and Hyper Backup Vault.&quot; All three are Synology software. hbkit reads these backups without Synology software, and <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">FORMAT.md</a> is a public description of the .hbk format, written so archives stay readable. The Mac version of Explorer needs Rosetta. hbkit runs natively on Apple silicon. See the <a class="text-link" href="../mac/">Mac guide</a> for setup and ext4 USB disks. Before you move to other hardware:</p>
+<ol><li>Run <code>doctor</code> on each archive from a computer, not from the NAS.</li><li>Restore the data you want to keep into plain folders.</li><li>Keep the <code>.hbk</code> folders. hbkit can still read their older versions with <code>--version</code>.</li></ol>
+<p>For errors during a restore, see <a class="text-link" href="../damaged-backup/">damaged backups</a>.</p>
+<h2 id="start-with-doctor">Start with doctor</h2>
+<div class="term"><pre><code>brew install YordiLorenzo/tap/hbkit
+hbk /Volumes/Backup doctor</code></pre></div>
+<p><code>doctor</code> writes nothing to the backup. If it does not say &quot;recoverable&quot;, <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/new">open an issue</a> with its output. Every command is in the <a class="text-link" href="https://github.com/YordiLorenzo/hbkit#readme">README</a>.</p>
+      </div>
+    </article>
+  </main>
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <a class="brand" href=".././" aria-label="hbkit, home">
+          <img src="../images/icon.svg" alt="" width="34" height="34" loading="lazy">
+          hbkit
+        </a>
+        <ul class="footer-links">
+          <li><details class="guide-menu"><summary>Guides</summary><ul><li><a href="../restore-without-nas/">Restore without a NAS</a></li><li><a href="../damaged-backup/">Damaged backups</a></li><li><a href="../mac/">Apple silicon Macs</a></li></ul></details></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">Source on GitHub</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/releases">Releases</a></li>
+          <li><a href="https://pypi.org/project/hbkit/">PyPI</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">Format notes</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/issues">Report a problem</a></li>
+        </ul>
+      </div>
+      <p>hbkit is free and open source under the <a href="https://github.com/YordiLorenzo/hbkit/blob/main/LICENSE">MIT License</a>.</p>
+      <p>hbkit is not affiliated with or endorsed by Synology. Synology and Hyper Backup are trademarks of Synology Inc., named here only to say what hbkit reads. The screenshots show hbkit's real interface over a demo archive.</p>
+      <p>Headings are set in Outfit, under the <a href="../fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+  </footer>
+
+
+</body>
+</html>

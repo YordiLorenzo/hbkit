@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Synology Hyper Backup (.hbk) on an Apple silicon Mac | hbkit</title>
+  <meta name="description" content="Read Synology Hyper Backup (.hbk) archives natively on an Apple silicon Mac. Install hbkit, check and restore files, and handle ext4 USB disks.">
+  <link rel="canonical" href="https://yordilorenzo.github.io/hbkit/mac/">
+  <meta name="theme-color" content="#06090C">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="hbkit">
+  <meta property="og:title" content="Open Synology Hyper Backup (.hbk) on an Apple silicon Mac | hbkit">
+  <meta property="og:description" content="Read Synology Hyper Backup (.hbk) archives natively on an Apple silicon Mac. Install hbkit, check and restore files, and handle ext4 USB disks.">
+  <meta property="og:url" content="https://yordilorenzo.github.io/hbkit/mac/">
+  <meta property="og:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="hbkit: your backup, without the NAS. The terminal browser shows a backup's folders.">
+  <meta property="article:modified_time" content="2026-11-11">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Open Synology Hyper Backup (.hbk) on an Apple silicon Mac | hbkit">
+  <meta name="twitter:description" content="Read Synology Hyper Backup (.hbk) archives natively on an Apple silicon Mac. Install hbkit, check and restore files, and handle ext4 USB disks.">
+  <meta name="twitter:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <link rel="icon" href="../images/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="../favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+  <link rel="preload" href="../fonts/outfit.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../style.css">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "Open a Hyper Backup (.hbk) on an Apple silicon Mac", "description": "Read Synology Hyper Backup (.hbk) archives natively on an Apple silicon Mac. Install hbkit, check and restore files, and handle ext4 USB disks.", "url": "https://yordilorenzo.github.io/hbkit/mac/", "mainEntityOfPage": "https://yordilorenzo.github.io/hbkit/mac/", "dateModified": "2026-11-11", "image": "https://yordilorenzo.github.io/hbkit/social-preview.png", "author": {"@type": "Organization", "name": "hbkit", "url": "https://yordilorenzo.github.io/hbkit/"}}</script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href=".././" aria-label="hbkit, home">
+        <img src="../images/icon.svg" alt="" width="34" height="34">
+        hbkit
+      </a>
+      <nav aria-label="Sections">
+        <ul class="nav">
+          <li class="nav-wide"><a href="../#features">Features</a></li>
+          <li><a href="../#install">Install</a></li>
+          <li><a href="../#faq">FAQ</a></li>
+          <li><details class="guide-menu"><summary>Guides</summary><ul><li><a href="../restore-without-nas/">Restore without a NAS</a></li><li><a href="../damaged-backup/">Damaged backups</a></li><li><a href="../mac/">Apple silicon Macs</a></li></ul></details></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+
+  <main id="main">
+    <article class="wrap guide">
+      <header class="guide-header"><h1>Open a Hyper Backup (.hbk) on an Apple silicon Mac</h1></header>
+      <div class="guide-body">
+<p>hbkit is an open reader for your own backups. It reads Synology Hyper Backup archives natively on Apple silicon and Intel Macs. Browse the files in a terminal, check their chunks and restore what you need, without a NAS or Synology software.</p>
+<p>hbkit never writes to the archive. If it is your only copy, copy the whole .hbk folder to another disk first and run hbkit on the copy.</p>
+<h2 id="your-archives-stay-readable">Your archives stay readable</h2>
+<p><a class="text-link" href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">FORMAT.md</a> is a public description of the .hbk format, written so archives stay readable. Anyone can use it to write another reader.</p>
+<p>Hyper Backup Explorer 3.0.1 for Mac is built for Intel and uses Rosetta on Apple silicon. Apple says Rosetta, which runs Intel apps on Apple silicon, stays available for all apps only through macOS 27. <a class="text-link" href="https://support.apple.com/en-us/102527">Apple’s notice</a> explains its availability.</p>
+<h2 id="first-make-the-backup-readable-by-macos">First, make the backup readable by macOS</h2>
+<p>A <code>.hbk</code> archive is a folder with <code>Config/</code> and <code>Pool/</code> inside. Copy the whole folder, not only the <code>.bkpi</code> marker file.</p>
+<p>macOS can&#x27;t read an ext4 USB disk on its own. hbkit does not add ext4 support. You have three ways to reach the archive:</p>
+<ul><li>Use a mounted NAS share. The NAS reads the disk, and macOS sees a network folder.</li><li>Use an ext4 driver for macOS. The driver must let you read the whole <code>.hbk</code> folder.</li><li>Use a Linux virtual machine to read the disk. You can run hbkit inside Linux or copy the whole archive to storage your Mac can read.</li></ul>
+<p>The commands below use <code>/Volumes/Backup</code>. Replace it with the path to your mounted backup or its copy. If the disk is failing, read the <a class="text-link" href="../damaged-backup/">damaged-backup guide</a> before running anything.</p>
+<h2 id="install-hbkit">Install hbkit</h2>
+<div class="term"><pre><code>brew install YordiLorenzo/tap/hbkit</code></pre></div>
+<p>Homebrew installs liblz4 with hbkit. With Python 3.10 or newer, you can also use <code>pipx install hbkit</code> or <code>pip install hbkit</code>. Install liblz4 separately with <code>brew install lz4</code>.</p>
+<h2 id="check-the-archive">Check the archive</h2>
+<div class="term"><pre><code>hbk /Volumes/Backup doctor</code></pre></div>
+<p><code>doctor</code> reads the layout and rebuilds a sample of files. It checks each chunk against the archive&#x27;s own MD5 and CRC32. A passing sample does not check every file.</p>
+<p>For an encrypted archive, add <code>-p</code> and the password or set <code>HBK_PASSWORD</code>. <code>doctor</code> does not prompt for a password. If it reports a failure, follow the <a class="text-link" href="../damaged-backup/">damaged-backup guide</a>.</p>
+<h2 id="browse-and-restore">Browse and restore</h2>
+<div class="term"><pre><code>hbk-tui /Volumes/Backup</code></pre></div>
+<p>Press <code>space</code> to tick a folder, <code>d</code> to choose the destination and <code>r</code> to restore. The browser checks whether your selection fits before you start.</p>
+<p>For the command line:</p>
+<div class="term"><pre><code>hbk /Volumes/Backup versions
+hbk /Volumes/Backup list invoice
+hbk /Volumes/Backup get &quot;/Photos/*&quot; ~/restore</code></pre></div>
+<p>hbkit reads the newest complete version by default. Add <code>--version N</code> to choose one listed by <code>versions</code>. Paths start with the share name. The example restores to <code>~/restore/Photos/</code> and keeps the original modification times. Run the same command again if the restore stops.</p>
+<p>After installation, hbkit works offline for a local disk and makes no network connections itself. A cloud bucket needs an rclone mount. The <a class="text-link" href="../restore-without-nas/">Restore without a NAS guide</a> covers buckets, backup versions and other restore options.</p>
+<h2 id="limits">Limits</h2>
+<p>Synology C2 Storage: Not tested yet. Use Hyper Backup Explorer for C2, key-file access and older RSA-encrypted archives. hbkit opens archives encrypted in Hyper Backup when you give it the password.</p>
+<p>hbkit needs <code>Config/</code> and <code>Pool/</code>. It can&#x27;t repair damaged archives or recover from <code>Pool/</code> alone. Files stored by whole-file dedup are not supported yet.</p>
+<p>On Windows, CI restores test archives byte-exact on every change. A backup from a real NAS has not been restored on Windows yet.</p>
+<p>Every command and install option is in the <a class="text-link" href="https://github.com/YordiLorenzo/hbkit#readme">README</a>.</p>
+      </div>
+    </article>
+  </main>
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <a class="brand" href=".././" aria-label="hbkit, home">
+          <img src="../images/icon.svg" alt="" width="34" height="34" loading="lazy">
+          hbkit
+        </a>
+        <ul class="footer-links">
+          <li><details class="guide-menu"><summary>Guides</summary><ul><li><a href="../restore-without-nas/">Restore without a NAS</a></li><li><a href="../damaged-backup/">Damaged backups</a></li><li><a href="../mac/">Apple silicon Macs</a></li></ul></details></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">Source on GitHub</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/releases">Releases</a></li>
+          <li><a href="https://pypi.org/project/hbkit/">PyPI</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">Format notes</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/issues">Report a problem</a></li>
+        </ul>
+      </div>
+      <p>hbkit is free and open source under the <a href="https://github.com/YordiLorenzo/hbkit/blob/main/LICENSE">MIT License</a>.</p>
+      <p>hbkit is not affiliated with or endorsed by Synology. Synology and Hyper Backup are trademarks of Synology Inc., named here only to say what hbkit reads. The screenshots show hbkit's real interface over a demo archive.</p>
+      <p>Headings are set in Outfit, under the <a href="../fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+  </footer>
+
+
+</body>
+</html>

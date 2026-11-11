@@ -9,7 +9,7 @@
 Recover files from **Synology Hyper Backup (`.hbk`)** archives without any Synology software.
 
 Point it at a backup on a local disk, an external drive, or a network mount, browse it as
-a tree, and pull out what you want. Works headless on Linux and macOS, including Apple Silicon, where Synology's
+a tree, and pull out what you want. Works headless on Linux and macOS, including Apple silicon, where Synology's
 own Hyper Backup Explorer is awkward or unavailable.
 
 Website: **[yordilorenzo.github.io/hbkit](https://yordilorenzo.github.io/hbkit/)**
@@ -37,6 +37,20 @@ derivation lives in [`packaging/nix/package.nix`](packaging/nix/package.nix).
 missing library only shows up when you extract something. The Homebrew formula installs it
 for you. Otherwise: `brew install lz4`, `sudo apt install liblz4-1`, or
 `sudo pacman -S lz4`. Set `HBK_LZ4` if yours lives somewhere unusual.
+
+### Restore without a NAS
+
+The step-by-step guide is on the site:
+[Restore a Hyper Backup without a Synology NAS](https://yordilorenzo.github.io/hbkit/restore-without-nas/).
+If Hyper Backup says the backup is corrupted, start with
+[what you can still recover](https://yordilorenzo.github.io/hbkit/damaged-backup/).
+
+hbkit never writes to the archive. If it is your only copy, copy the whole `.hbk` folder
+to another disk first and run hbkit on the copy.
+
+Got your files back? [Tell us in Discussions](https://github.com/YordiLorenzo/hbkit/discussions/categories/recovered-with-hbkit).
+To hear about new versions, watch the repo's releases or follow
+[Announcements](https://github.com/YordiLorenzo/hbkit/discussions/categories/announcements).
 
 ---
 
@@ -322,6 +336,9 @@ Read this before trusting it with the only copy of anything.
   archive (unencrypted, LZ4, single version, single pool) and a small encrypted one from
   the same DSM version, both verified byte-exact, plus a 7-version encrypted archive from
   Hyper Backup 4.2.2 reported in [#4](https://github.com/YordiLorenzo/hbkit/issues/4).
+  In [#6](https://github.com/YordiLorenzo/hbkit/issues/6), a user restored 465,000 files
+  (754 GB) from a backup on a NAS hit by C3RB3R ransomware: it had locked only small
+  files that hbkit doesn't read.
   Version selection was checked byte-exact on a small two-version encrypted Hyper Backup
   4.2.2 archive (each version's copy of a changed file, by number and by date), and on
   synthetic archives; the version list comes from `Config/version_info.db`, whose layout
@@ -333,8 +350,11 @@ Read this before trusting it with the only copy of anything.
   bytes, which is the one thing a recovery tool must never do.
 - **Whole-file dedup** (`off_virtual_file = -1`, files living in `Pool/file_pool`) is not
   decoded. One file in 501,278 in the reference archive.
-- **Windows is untested for extraction.** CI installs the package and checks that it
-  imports, but no archive has been rebuilt on Windows. Linux and macOS are verified.
+- **Synology C2 is not tested.** Use Hyper Backup Explorer for a backup kept in C2.
+- **Windows: tested on synthetic archives only.** On every push, CI restores plain and
+  encrypted test archives byte-exact on Windows, with an `lz4.dll` built by
+  `vcpkg install lz4:x64-windows` and `HBK_LZ4` set to its full path. No archive from a
+  real NAS has been restored on Windows yet. Linux and macOS are verified on real archives.
 
 ## The format
 
@@ -355,6 +375,7 @@ offsets. Where the two disagreed, the empirical result won.
 ## Prior art
 
 - [TeamDman/teamy-hyper-backup-explorer](https://github.com/TeamDman/teamy-hyper-backup-explorer) — independent Rust implementation (MPL-2.0). Its constants agree with what we derived separately.
+- [Callido Restore](https://github.com/Niels-van-Haren-Holding-B-V/callido-restore): a separate macOS app (MIT) that restores `.hbk` archives, started 2026-10-30. We have not reviewed its code.
 - [mistersandman/hyperbackup_decrypt](https://github.com/mistersandman/hyperbackup_decrypt) — 2016 Python 2 script, and the only public reference for the **encrypted** variant.
 
 ## Development

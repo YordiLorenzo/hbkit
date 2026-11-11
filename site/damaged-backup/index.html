@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hyper Backup destination corrupted: what you can still recover | hbkit</title>
+  <meta name="description" content="Check a Synology Hyper Backup (.hbk) that reports corruption. Copy the whole folder, run doctor, verify files and restore what is intact.">
+  <link rel="canonical" href="https://yordilorenzo.github.io/hbkit/damaged-backup/">
+  <meta name="theme-color" content="#06090C">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="hbkit">
+  <meta property="og:title" content="Hyper Backup destination corrupted: what you can still recover | hbkit">
+  <meta property="og:description" content="Check a Synology Hyper Backup (.hbk) that reports corruption. Copy the whole folder, run doctor, verify files and restore what is intact.">
+  <meta property="og:url" content="https://yordilorenzo.github.io/hbkit/damaged-backup/">
+  <meta property="og:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="hbkit: your backup, without the NAS. The terminal browser shows a backup's folders.">
+  <meta property="article:modified_time" content="2026-11-11">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Hyper Backup destination corrupted: what you can still recover | hbkit">
+  <meta name="twitter:description" content="Check a Synology Hyper Backup (.hbk) that reports corruption. Copy the whole folder, run doctor, verify files and restore what is intact.">
+  <meta name="twitter:image" content="https://yordilorenzo.github.io/hbkit/social-preview.png">
+  <link rel="icon" href="../images/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="../favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+  <link rel="preload" href="../fonts/outfit.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../style.css">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "Hyper Backup destination corrupted: what you can still recover", "description": "Check a Synology Hyper Backup (.hbk) that reports corruption. Copy the whole folder, run doctor, verify files and restore what is intact.", "url": "https://yordilorenzo.github.io/hbkit/damaged-backup/", "mainEntityOfPage": "https://yordilorenzo.github.io/hbkit/damaged-backup/", "dateModified": "2026-11-11", "image": "https://yordilorenzo.github.io/hbkit/social-preview.png", "author": {"@type": "Organization", "name": "hbkit", "url": "https://yordilorenzo.github.io/hbkit/"}}</script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href=".././" aria-label="hbkit, home">
+        <img src="../images/icon.svg" alt="" width="34" height="34">
+        hbkit
+      </a>
+      <nav aria-label="Sections">
+        <ul class="nav">
+          <li class="nav-wide"><a href="../#features">Features</a></li>
+          <li><a href="../#install">Install</a></li>
+          <li><a href="../#faq">FAQ</a></li>
+          <li><details class="guide-menu"><summary>Guides</summary><ul><li><a href="../restore-without-nas/">Restore without a NAS</a></li><li><a href="../damaged-backup/">Damaged backups</a></li><li><a href="../mac/">Apple silicon Macs</a></li></ul></details></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+
+  <main id="main">
+    <article class="wrap guide">
+      <header class="guide-header"><h1>Hyper Backup destination corrupted: what you can still recover</h1></header>
+      <div class="guide-body">
+<p>hbkit can&#x27;t repair a damaged backup. It reads the parts that are still intact, checks every chunk against the archive&#x27;s own MD5 and CRC32, and names each file it can&#x27;t rebuild.</p>
+<p>hbkit needs the archive&#x27;s <code>Config/</code> folder. If only <code>Pool/</code> is left, hbkit can&#x27;t recover it yet.</p>
+<p class="guide-warning">If the disk is slow, clicks or shows SMART errors, stop. Image it or send it to a recovery lab, then run hbkit on the copy.</p>
+<p>hbkit never writes to the archive. If it is your only copy, copy the whole .hbk folder to another disk first and run hbkit on the copy.</p>
+<h2 id="what-hbkit-can-t-do-yet">What hbkit can&#x27;t do yet</h2>
+<ul><li>Recover from <code>Pool/</code> alone, without <code>Config/</code>.</li><li>Open older RSA-encrypted archives, or open an archive with only the key file.</li><li>Rebuild files stored by whole-file dedup (1 in 501,278 files in the reference archive).</li><li>Synology C2 Storage: Not tested yet.</li><li>On Windows, CI restores test archives byte-exact on every change. A backup from a real NAS has not been restored on Windows yet.</li></ul>
+<p>Use Hyper Backup Explorer for C2, key-file access and older RSA archives.</p>
+<p>hbkit is an open reader for your own backups. It is free and open source, runs on macOS and Linux, and needs no NAS.</p>
+<div class="term"><pre><code>brew install YordiLorenzo/tap/hbkit</code></pre></div>
+<p>Homebrew also installs liblz4. With <code>pipx install hbkit</code>, install liblz4 yourself: <code>brew install lz4</code>, <code>sudo apt install liblz4-1</code> or <code>sudo pacman -S lz4</code>.</p>
+<h2 id="get-back-what-is-intact-in-five-steps">Get back what is intact, in five steps</h2>
+<h3 id="1-copy-the-whole-hbk-folder-first">1. Copy the whole .hbk folder first</h3>
+<p>Work on a copy and leave the original as it is. Copy the folder whose name ends in <code>.hbk</code>, with <code>Config/</code>, <code>Pool/</code> and every file next to them, to a healthy disk.</p>
+<div class="term"><pre><code>rsync -a /Volumes/Backup/nas_1.hbk /Volumes/Spare/</code></pre></div>
+<p>Then count the files in both folders. Different numbers show an incomplete copy; matching counts alone do not prove the contents match.</p>
+<div class="term"><pre><code>find /Volumes/Backup/nas_1.hbk -type f | wc -l
+find /Volumes/Spare/nas_1.hbk -type f | wc -l</code></pre></div>
+<p>An incomplete copy causes errors that look like damage. A forum user downloaded only the <code>.bkpi</code> file from Amazon S3, and Hyper Backup Explorer said the data was corrupted. With the whole folder, the restore worked (<a class="text-link" href="https://community.synology.com/enu/forum/17/post/107656">thread 107656</a>, 2017). The <code>.bkpi</code> file is only a marker and can be zero bytes (<a class="text-link" href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">FORMAT.md</a>).</p>
+<p>A backup in S3, B2 or R2 is also faster to read from a local copy than through <code>hbk mount</code>.</p>
+<h3 id="2-run-doctor">2. Run doctor</h3>
+<div class="term"><pre><code>hbk /Volumes/Spare/nas_1.hbk doctor</code></pre></div>
+<p><code>doctor</code> never writes to the archive. It reads the layout, then rebuilds a random sample of files and checks every chunk. For an encrypted archive, add <code>-p</code> and the password, or set <code>HBK_PASSWORD</code>. <code>doctor</code> does not ask for it. Its last line is one of three verdicts:</p>
+<div class="guide-table"><table><thead><tr><th scope="col">Verdict</th><th scope="col">What it means</th><th scope="col">Next</th></tr></thead><tbody><tr><th scope="row" data-label="Verdict"><code>recoverable</code></th><td data-label="What it means">Every sampled file came back and passed its checks.</td><td data-label="Next">Step 3. A sample can miss damage in other files.</td></tr><tr><th scope="row" data-label="Verdict"><code>sample extraction FAILED</code></th><td data-label="What it means">At least one check failed, usually on a sampled file. A <code>FAIL</code> line says which.</td><td data-label="Next">Step 3 finds every file that fails.</td></tr><tr><th scope="row" data-label="Verdict"><code>cannot be recovered by this tool</code></th><td data-label="What it means">Something blocks hbkit. The <code>BLOCKED</code> line says what.</td><td data-label="Next">See <a class="text-link" href="#what-hbkit-can-t-do-yet">what hbkit can&#x27;t do yet</a> above.</td></tr></tbody></table></div>
+<h3 id="3-verify-every-file">3. Verify every file</h3>
+<div class="term"><pre><code>hbk /Volumes/Spare/nas_1.hbk verify &quot;*&quot; -j 8</code></pre></div>
+<p><code>verify</code> reads and checks every file without restoring it. It can write a local index cache, but never changes the archive. <code>-j</code> sets the number of worker processes: 8 (the default) for a local disk, 16 for a network mount. <code>verify</code> lists each failure as <code>FAIL &lt;path&gt;: &lt;reason&gt;</code>, up to 20, then counts the rest. Exit code 1 means at least one file failed.</p>
+<h3 id="4-get-the-intact-files">4. Get the intact files</h3>
+<div class="term"><pre><code>hbk /Volumes/Spare/nas_1.hbk get &quot;/Photos/*&quot; ~/restore -j 8</code></pre></div>
+<p>Or tick folders in <code>hbk-tui /Volumes/Spare/nas_1.hbk</code>.</p>
+<p>Each file that passes every check is saved as <code>~/restore/&lt;share&gt;/&lt;original path&gt;</code>, with its original modification time. A file that fails is listed and is not saved under its name. If the run stops, run the same command again. Finished files are skipped.</p>
+<h3 id="5-if-the-newest-version-fails-try-an-older-one">5. If the newest version fails, try an older one</h3>
+<p>Each backup version has its own file list in <code>Config/</code>. If the newest file list is damaged, an older version may still open.</p>
+<div class="term"><pre><code>hbk /Volumes/Spare/nas_1.hbk versions
+hbk /Volumes/Spare/nas_1.hbk get &quot;/Photos/*&quot; ~/restore-v12 --version 12</code></pre></div>
+<p>If <code>Config/version_info.db</code> is damaged, hbkit stops with exit code 2, because it can&#x27;t tell which versions finished. Add <code>--allow-incomplete</code> to read the newest file list of each share. hbkit then says that completion was not checked.</p>
+<h2 id="stored-data-on-the-backup-destination-are-corrupted">&quot;Stored data on the backup destination are corrupted.&quot;</h2>
+<p><em>Hyper Backup Explorer, when it opens a backup.</em></p>
+<p>Users report this message in these situations:</p>
+<ul><li><strong>Only part of the folder was copied.</strong> See the reported fix in step 1.</li><li><strong>A Mac or a Windows PC read the disk through an ext4 driver.</strong> The drivers were ext4fuse on a Mac (<a class="text-link" href="https://community.synology.com/enu/forum/17/post/108792">thread 108792</a>, 2017) and DiskInternals Linux Reader on Windows (<a class="text-link" href="https://www.reddit.com/r/synology/comments/1paynco/">r/synology</a>, 2025). Neither thread has a fix. For a related error, see &quot;File or directory does not exist&quot; below.</li><li><strong>The backup is damaged.</strong> A recovery company describes a disk with corrupted <code>.bucket</code> and <code>.index</code> files. Explorer restored about 75 GB, then stopped with errors (<a class="text-link" href="https://sosransomware.com/en/ransomware-en/data-recovery-ransomware-attack-synology-nas-hyper-backup/">case report</a>, 2025).</li></ul>
+<p>With hbkit, run steps 1 to 3 on the same folder. If part of the archive is missing, <code>doctor</code> reports what it could not open. If chunks are damaged, <code>verify</code> names each file that fails, and step 4 gets the rest. For an encrypted backup, hbkit checks the password before it reads any data and says if it is wrong.</p>
+<h2 id="partially-copied-the-file-folder">&quot;Partially copied the file/folder&quot;</h2>
+<p><em>Hyper Backup Explorer, during a restore.</em></p>
+<p>Explorer copied only part of what you selected. The message points to an error log. One user saw it on a Mac with Paragon ExtFS, after a client&#x27;s NAS was stolen. Nobody replied (<a class="text-link" href="https://community.synology.com/enu/forum/17/post/111882">thread 111882</a>, 2017). The recovery company above saw it on the damaged disk.</p>
+<p>With hbkit, run <code>verify</code> first. It lists each file that fails, and the reason, before you copy anything. Then <code>get</code> restores every file that passes.</p>
+<h2 id="file-or-directory-does-not-exist">&quot;File or directory does not exist.&quot;</h2>
+<p><em>Hyper Backup Explorer, when it copies files out.</em></p>
+<p>Explorer opens the backup and shows the files, but the copy fails. Users report this on Macs and Windows PCs that read an ext4 backup disk through Paragon&#x27;s driver (<a class="text-link" href="https://community.synology.com/enu/forum/17/post/103292">thread 103292</a>, <a class="text-link" href="https://community.synology.com/enu/forum/1/post/130806">thread 130806</a>). What users report:</p>
+<ul><li>Synology support told one user to copy the disk to a local folder first, then open the copy (thread 103292).</li><li>Linux worked. Explorer restored files in Ubuntu 18.04 (thread 103292) and in a Linux Mint virtual machine (thread 130806).</li><li><code>chmod -R 0777</code> on the <code>.hbk</code> folder fixed it for one user (thread 130806, 2022). This changes the backup. Do it only on a copy.</li></ul>
+<p>With hbkit, use Linux: it reads ext4 without an extra driver. hbkit never writes to the archive, so a read-only mount is enough.</p>
+<h2 id="the-data-stored-in-backup-destination-was-corrupted">&quot;The data stored in backup destination [...] was corrupted.&quot;</h2>
+<p><em>Hyper Backup on the NAS, in the log. The task can show &quot;Destination corrupted&quot;.</em></p>
+<p>Users report it after the USB disk ran out of space (<a class="text-link" href="https://community.synology.com/enu/forum/1/post/190393">thread 190393</a>, 2024). For USB disks, Synology support called it a known issue and said not to unmount the disk (<a class="text-link" href="https://community.synology.com/enu/forum/17/post/97610">thread 97610</a>, 2017). The log can name a file in <code>Config/</code>, such as <code>Config/virtual_file.index</code>, that &quot;was not existed or had invalid content&quot;. hbkit reads the same files, so a damaged one can block hbkit too. <code>doctor</code> tells you.</p>
+<p>What users report:</p>
+<ul><li>Synology support told users to delete the backup and start again (thread 97610; SynoForum, <a class="text-link" href="https://www.synoforum.com/threads/destination-corrupted-error-in-hyperbackup.865/page-2">2023</a> and <a class="text-link" href="https://www.synoforum.com/threads/destination-corrupted-error-in-hyperbackup.865/page-3">2025</a>). That deletes every old version.</li><li>Several users fixed the task with Synology&#x27;s <code>synoimgbkptool</code>, run over SSH on the NAS (<a class="text-link" href="https://www.synoforum.com/threads/destination-corrupted-error-in-hyperbackup.865/">SynoForum thread</a>, 2020 to 2025). It failed for one user. It changes the backup, and one user expected it to run for days on 11 TB.</li></ul>
+<p>Before you delete the task or run a repair, do steps 1 to 4 on a copy.</p>
+<h2 id="ransomware-locked-some-files-in-the-backup">Ransomware locked some files in the backup</h2>
+<p>In <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/6">hbkit issue #6</a>, wingsoon2 reported that C3RB3R ransomware renamed small files to <code>.L0CK3D</code>: <code>bucketID.counter</code>, <code>del_list.db</code> and <code>_Syno_TaskConfig</code>. It left <code>Config/</code> and the <code>Pool/</code> buckets alone. hbkit does not need those small files for this restore. It restored 465,000 files (754 GB), with none failed.</p>
+<p>hbkit can&#x27;t decrypt ransomware-encrypted files. If <code>Config/</code> itself is encrypted, names and folders can&#x27;t be rebuilt yet. Update DSM first, following <a class="text-link" href="https://www.synology.com/en-global/security/advisory/Synology_SA_26_13">Synology-SA-26:13</a>.</p>
+<h2 id="check-a-backup-on-a-clean-computer">Check a backup on a clean computer</h2>
+<p>A restore test shows that the backup works without the NAS.</p>
+<ol><li>Connect the backup disk. Mount it read-only if you can.</li><li>Run <code>hbk /Volumes/Backup doctor</code>.</li><li>Run <code>hbk /Volumes/Backup verify &quot;*&quot; -j 8</code>.</li><li>Restore one folder you know with <code>get</code>, and open a few of its files.</li></ol>
+<p>After installation, hbkit needs no Synology account or internet connection when reading a local disk. For an encrypted archive, the index in <code>~/.cache/hbkit</code> keeps the file names in plain text. Delete it when you finish.</p>
+<p>If <code>doctor</code> fails on your archive for another reason, <a class="text-link" href="https://github.com/YordiLorenzo/hbkit/issues/new">open an issue</a> and paste its output. The output shows the task, host and share names, so remove what you want to keep private.</p>
+<p>Install options and every command: <a class="text-link" href="../">hbkit home</a>. For the full restore process, read <a class="text-link" href="../restore-without-nas/">Restore without a NAS</a>.</p>
+      </div>
+    </article>
+  </main>
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <a class="brand" href=".././" aria-label="hbkit, home">
+          <img src="../images/icon.svg" alt="" width="34" height="34" loading="lazy">
+          hbkit
+        </a>
+        <ul class="footer-links">
+          <li><details class="guide-menu"><summary>Guides</summary><ul><li><a href="../restore-without-nas/">Restore without a NAS</a></li><li><a href="../damaged-backup/">Damaged backups</a></li><li><a href="../mac/">Apple silicon Macs</a></li></ul></details></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit">Source on GitHub</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/releases">Releases</a></li>
+          <li><a href="https://pypi.org/project/hbkit/">PyPI</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/blob/main/FORMAT.md">Format notes</a></li>
+          <li><a href="https://github.com/YordiLorenzo/hbkit/issues">Report a problem</a></li>
+        </ul>
+      </div>
+      <p>hbkit is free and open source under the <a href="https://github.com/YordiLorenzo/hbkit/blob/main/LICENSE">MIT License</a>.</p>
+      <p>hbkit is not affiliated with or endorsed by Synology. Synology and Hyper Backup are trademarks of Synology Inc., named here only to say what hbkit reads. The screenshots show hbkit's real interface over a demo archive.</p>
+      <p>Headings are set in Outfit, under the <a href="../fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+  </footer>
+
+
+</body>
+</html>
