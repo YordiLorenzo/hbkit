@@ -31,7 +31,7 @@ Synology owners with a Hyper Backup on a USB disk, another NAS, or an S3, B2 or 
 - Windows: CI restores test archives on Windows; no backup from a real NAS has been restored on Windows yet.
 - The big reference archive is "3 TB".
 - No em or en dashes, no marketing words (seamless, powerful, effortless), no "guaranteed". Plain short sentences.
-- Text in the maintainer's own voice (Reddit, forums, emails): normal sentences with capitals and apostrophes, short replies loose, never an added typo, and it says he is the author (decided 2026-11-11).
+- Text in the maintainer's own voice (Reddit, forums, emails): normal sentences with capitals and apostrophes, short replies loose, never an added typo, and it says the maintainer is the author (decided 2026-11-11).
 
 ## Proof (quote only with consent on record)
 
@@ -49,4 +49,4 @@ Synology owners with a Hyper Backup on a USB disk, another NAS, or an S3, B2 or 
 ## Where the copy lives
 
 - Site: `site/` (homepage plus guides at /restore-without-nas/, /damaged-backup/, /mac/).
-- Go-to-market plan and copy drafts from 2026-11-10: kept outside the repo; facts that matter are in this file.
+- Go-to-market plan, drafts and the log of what went out: kept outside the repo (private launch folder); facts that matter are in this file.
