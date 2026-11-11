@@ -8,9 +8,14 @@
   makeWrapper,
 }:
 
+let
+  # hbkit dlopen()s liblz4 by name instead of linking it, and nothing is on a default
+  # library search path here, so point it straight at the store path.
+  liblz4 = "${lz4.lib}/lib/liblz4${stdenv.hostPlatform.extensions.sharedLibrary}";
+in
 python3Packages.buildPythonApplication (finalAttrs: {
   pname = "hbkit";
-  version = "0.4.3";
+  version = "0.5.1";
   pyproject = true;
   __structuredAttrs = true;
 
@@ -18,7 +23,7 @@ python3Packages.buildPythonApplication (finalAttrs: {
     owner = "YordiLorenzo";
     repo = "hbkit";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-F3LH5bvYbgdb3xOrb2FZcZ5vuS4KzFKvJvw6GlzsEgU=";
+    hash = "sha256-3xCmSa0MrkXQ+DBKvz8ZEQM98sL/5E+2L7sO10DwBIk=";
   };
 
   build-system = [ python3Packages.hatchling ];
@@ -31,16 +36,18 @@ python3Packages.buildPythonApplication (finalAttrs: {
     cryptography
   ];
 
-  # hbkit dlopen()s liblz4 by name instead of linking it, and nothing is on a default
-  # library search path here, so point it straight at the store path.
   postFixup = ''
     for exe in hbk hbk-tui; do
-      wrapProgram "$out/bin/$exe" \
-        --set HBK_LZ4 "${lz4.lib}/lib/liblz4${stdenv.hostPlatform.extensions.sharedLibrary}"
+      wrapProgram "$out/bin/$exe" --set HBK_LZ4 "${liblz4}"
     done
   '';
 
   nativeCheckInputs = [ python3Packages.pytestCheckHook ];
+
+  # without it the tests that extract from synthetic archives skip themselves
+  preCheck = ''
+    export HBK_LZ4="${liblz4}"
+  '';
 
   pythonImportsCheck = [ "hbkit" ];
 
