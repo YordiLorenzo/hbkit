@@ -1,0 +1,67 @@
+title: "Recovered: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for coming back to tell us. A short report helps the next person who finds their NAS dead and a .hbk folder they can't open.
+        Leave out file names and anything private. Numbers and the kind of archive are enough.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where was the archive?
+      options:
+        - USB disk
+        - Another NAS or a network share
+        - Amazon S3 or an S3-compatible bucket
+        - Backblaze B2
+        - Cloudflare R2
+        - Somewhere else
+    validations:
+      required: true
+  - type: input
+    id: size
+    attributes:
+      label: Roughly how big, and how many files?
+      placeholder: "for example: 800 GB, 120,000 files"
+  - type: dropdown
+    id: encrypted
+    attributes:
+      label: Was the backup encrypted in Hyper Backup?
+      options:
+        - "No"
+        - "Yes, I used the password"
+        - I don't know
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Which computer ran hbkit?
+      placeholder: "for example: Ubuntu 24.04 server, MacBook Air M2, Windows 11"
+  - type: input
+    id: versions
+    attributes:
+      label: DSM and Hyper Backup versions, if you know them
+      placeholder: "for example: DSM 7.2, Hyper Backup 4.1"
+  - type: textarea
+    id: commands
+    attributes:
+      label: What did you run?
+      description: The hbk commands, roughly. The last line of `hbk get` (the "extracted, failed" count) is the most useful part.
+      render: text
+  - type: textarea
+    id: story
+    attributes:
+      label: What happened, and what came back?
+    validations:
+      required: true
+  - type: dropdown
+    id: quote
+    attributes:
+      label: May we quote this on the hbkit site or README?
+      options:
+        - Yes, with my GitHub username
+        - Yes, but without my name
+        - "No"
+    validations:
+      required: true

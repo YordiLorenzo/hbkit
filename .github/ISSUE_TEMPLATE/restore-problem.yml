@@ -1,0 +1,59 @@
+name: A restore doesn't work
+description: hbkit can't open, list or restore an archive
+labels: ["restore problem"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the disk is slow, clicks or shows SMART errors, stop using it. Image it or send it to a recovery lab, then run hbkit on the copy.
+        hbkit never writes to the archive, so the commands below are safe to run.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `hbk <archive> doctor`
+      description: Paste all of it. It shows the archive layout and test-reads a sample of files. Remove file names if they are private.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: ran
+    attributes:
+      label: What did you run, and what happened?
+      description: The command and its output, or the error message.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Output of `hbk --version`
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system
+      placeholder: "for example: macOS 26 on Apple silicon, Ubuntu 24.04, Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where is the archive?
+      options:
+        - USB disk or internal disk
+        - Network share
+        - Bucket through hbk mount (rclone)
+        - Somewhere else
+    validations:
+      required: true
+  - type: dropdown
+    id: encrypted
+    attributes:
+      label: Is the backup encrypted in Hyper Backup?
+      options:
+        - "No"
+        - "Yes"
+        - I don't know
+    validations:
+      required: true
