@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.3
+
+### Fixed
+
+- Archives stored without compression (`data_compress_type` 0, "none" in `doctor`) now
+  restore. Every chunk of such an archive failed before. Found and diagnosed by @tabrindle
+  on two 12 TB archives, with the patch this fix builds on (#9). A stored chunk that is
+  itself valid zlib data, such as a git object, comes back as stored: hbkit keeps the
+  decoding whose MD5 matches.
+
 ## 0.5.2
 
 No change to how hbkit reads or restores archives.
