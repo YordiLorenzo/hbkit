@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- This page answers for any missing path, so relative links start from the site's root. -->
   <base href="/">
+  <!-- A link copied out of plain text often keeps the ")." or "," after it (two visits on 2026-11-14 hit
+       /damaged-backup/). this way). Drop that tail and go to the real page. -->
+  <script>
+    var p = location.pathname.replace(/[).,;:'"\]>]+$/, "");
+    if (p !== location.pathname) location.replace(p + location.search + location.hash);
+  </script>
   <title>Page not found: hbkit</title>
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#06090C">
