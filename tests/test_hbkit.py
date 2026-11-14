@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 
 import pytest
 
@@ -262,6 +263,7 @@ def _multi_key_archive():
     arc.crypto = ArchiveCrypto(pw, unikey, pub, [(nb.crypto_box_seal(k, pub),
                                                   nb.crypto_box_seal(iv, pub)) for k, iv in keys])
     arc._brec, arc._bkey, buckets, plain = {}, {}, {}, []
+    arc._stored_first = False              # an LZ4 archive (data_compress_type 1)
     lib.LZ4_compress_default.argtypes = [ctypes.c_char_p, ctypes.c_char_p,
                                          ctypes.c_int, ctypes.c_int]
     for bid, (key, iv) in enumerate([*keys, (os.urandom(32), os.urandom(16))]):
@@ -806,6 +808,26 @@ def _hbk(tmp_path, *args, password=None):
         env["HBK_PASSWORD"] = password
     return subprocess.run([sys.executable, "-m", "hbkit.cli", *map(str, args)],
                           capture_output=True, text=True, env=env, input="")
+
+
+@pytest.mark.parametrize("encrypted", [False, True], ids=["plain", "encrypted"])
+def test_uncompressed_archive_restores(tmp_path, encrypted):
+    """Hyper Backup can store chunks without compression (data_compress_type 0): the
+    stored length equals the real one and the payload is the file's own bytes (issue #9).
+    The last chunk is itself a valid zlib stream, as a git object is: it must come back as
+    stored, not decompressed."""
+    synth = _synth()
+    body = [b"H" * 3000 + os.urandom(1000), os.urandom(5000), zlib.compress(b"blob 12\0" * 40)]
+    root = synth.build(str(tmp_path / "arc"), [synth.V({"firebird/raw.bak": body}, T0)],
+                       encrypted=encrypted, compress_type=0)
+    pw = synth.PASSWORD if encrypted else None
+    r = _hbk(tmp_path, root, "doctor", password=pw)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "chunk codec : none" in r.stdout
+    out = tmp_path / "out"
+    r = _hbk(tmp_path, root, "get", "/db_staging/firebird/raw.bak", out, password=pw)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (out / "db_staging/firebird/raw.bak").read_bytes() == b"".join(body)
 
 
 GLOB = "/db_staging/firebird/*.gbk"

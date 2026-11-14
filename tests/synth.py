@@ -89,8 +89,11 @@ class _Crypto:
 
 
 def build(root: str, versions: list[V], encrypted: bool = False,
-          with_version_info: bool = True) -> str:
-    """Write `<root>/synth.hbk` holding `versions` (version ids 1..n). Returns its path."""
+          with_version_info: bool = True, compress_type: int = 1) -> str:
+    """Write `<root>/synth.hbk` holding `versions` (version ids 1..n). Returns its path.
+
+    `compress_type` 1 stores LZ4 blocks; 0 stores chunks uncompressed, as some real archives do.
+    """
     arc = os.path.join(root, "synth.hbk")
     cfg, pool = f"{arc}/Config", f"{arc}/Pool"
     for d in (f"{cfg}/virtual_file.index", f"{cfg}/file_chunk1.index",
@@ -113,7 +116,7 @@ def build(root: str, versions: list[V], encrypted: bool = False,
                 keys = []
                 for c in parts:
                     if c not in chunks:
-                        comp = _lz4(c)
+                        comp = _lz4(c) if compress_type else c
                         if crypto:
                             comp = crypto.chunk(comp, vi)
                         rec = struct.pack(">III", len(comp), len(bdat), len(c)) + \
@@ -185,7 +188,7 @@ def build(root: str, versions: list[V], encrypted: bool = False,
         db.close()
 
     conf = ['[task_config]', 'name="synth"', 'host_name="synth-host"',
-            'data_compress_type=1', f'enable_data_encrypt={"true" if crypto else "false"}']
+            f'data_compress_type={compress_type}', f'enable_data_encrypt={"true" if crypto else "false"}']
     if crypto:
         conf.append(f'unikey="{UNIKEY}"')
         with open(f"{cfg}/public.pem", "wb") as fh:

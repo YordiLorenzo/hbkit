@@ -210,6 +210,12 @@ The codec comes from `data_compress_type` in `_Syno_TaskConfig`. The vendor disp
 lz4-hc share a decompressor. A robust reader attempts LZ4 and falls back to zlib. [D for
 the mapping, V for LZ4]
 
+**0 = none**: the chunk is stored uncompressed. `compressed length` equals `uncompressed
+length` in every bucket record and the payload is the chunk's own bytes. Seen on two DSM
+archives from 2020 with compression off (issue #9). A stored payload can itself be valid
+zlib or LZ4 data (a git object is a zlib stream), so a reader keeps the decoding whose MD5
+matches, and tries the stored bytes first when the task says type 0. [V]
+
 Existing open-source tools implement only LZ4 and report corruption on some chunks; the
 zlib path is the likely explanation.
 

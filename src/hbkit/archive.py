@@ -11,7 +11,8 @@ Format (reverse engineered; all integers BIG-ENDIAN):
        u32 comp_len, u32 offset, u32 uncomp_len, md5[16] of DECOMPRESSED chunk,
        u32 crc32 of record[0:28]
   -> same-named .bucket @offset, comp_len bytes: raw LZ4 BLOCK (zlib is the fallback codec;
-     SYNO::Backup::decompress dispatches type 1/2/4 = lz4 / lz4-hc / zlib)
+     SYNO::Backup::decompress dispatches type 1/2/4 = lz4 / lz4-hc / zlib; type 0 stores the
+     chunk uncompressed, comp_len == uncomp_len)
 
 Index families are <N>.idx shards concatenated in numeric order; records start at stream
 offset 64; only shard 0 carries the 64-byte header (magic 0x7053A86E).
@@ -127,15 +128,34 @@ def lz4():
     return _lz4
 
 
-def _decompress(raw: bytes, ulen: int) -> bytes | None:
-    """A chunk payload: a raw LZ4 block, else zlib (compress type 4). None if neither fits."""
+def _decodings(raw: bytes, ulen: int, stored_first: bool):
+    """The ways a chunk payload can decode to `ulen` bytes: a raw LZ4 block, zlib (compress
+    type 4), or the payload as stored (compress type 0, where the stored length equals the
+    uncompressed one). A stored payload can itself be valid LZ4 or zlib data (a git object
+    is a zlib stream), so the caller keeps the first decoding whose MD5 matches. An archive
+    whose task says type 0 tries the stored bytes first.
+    """
+    if stored_first and len(raw) == ulen:
+        yield raw
     dst = ctypes.create_string_buffer(ulen)
     if lz4().LZ4_decompress_safe(raw, dst, len(raw), ulen) == ulen:
-        return dst.raw
+        yield dst.raw
     try:
-        return zlib.decompress(raw)
+        z = zlib.decompress(raw)
     except zlib.error:
-        return None
+        z = None
+    if z is not None:
+        yield z
+    if not stored_first and len(raw) == ulen:
+        yield raw
+
+
+def _decode(raw: bytes, ulen: int, md5: bytes, verify: bool, stored_first: bool) -> bytes | None:
+    """The first decoding whose MD5 matches, or the first decoding at all when not verifying."""
+    for data in _decodings(raw, ulen, stored_first):
+        if not verify or hashlib.md5(data).digest() == md5:
+            return data
+    return None
 
 
 # ------------------------------------------------------------ path resolution
@@ -347,6 +367,7 @@ class Archive:
         self._bdat: OrderedDict[int, object] = OrderedDict()
         self._brec: dict[int, int] = {}
         self._bkey: dict[int, int] = {}      # bucket id -> index into crypto.data_keys
+        self._stored_first = self.task_config().get("data_compress_type") == "0"
         self._password = None
         # The version list is stored in the clear: check the selector before unlocking,
         # so a typo or a missing version is reported without asking for a password.
@@ -622,11 +643,10 @@ class Archive:
         md5 = rec[12:28]
         if self.crypto is not None:
             return self._decrypt(bid, boff, raw, ulen, md5)
-        data = _decompress(raw, ulen)
+        data = _decode(raw, ulen, md5, verify, self._stored_first)
         if data is None:
-            raise ValueError(f"decompress failed b{bid}@{boff} want={ulen}")
-        if verify and hashlib.md5(data).digest() != md5:
-            raise ValueError(f"MD5 mismatch b{bid}@{boff}")
+            raise ValueError(f"MD5 mismatch b{bid}@{boff}: no decoding matches (want={ulen})"
+                             if verify else f"decompress failed b{bid}@{boff} want={ulen}")
         return data
 
     def _decrypt(self, bid: int, boff: int, raw: bytes, ulen: int, md5: bytes) -> bytes:
@@ -640,8 +660,8 @@ class Archive:
         n = len(self.crypto.data_keys)
         first = self._bkey.get(bid, 0)
         for k in (first, *(i for i in range(n) if i != first)):
-            data = _decompress(self.crypto.decrypt_chunk(raw, k), ulen)
-            if data is not None and hashlib.md5(data).digest() == md5:
+            data = _decode(self.crypto.decrypt_chunk(raw, k), ulen, md5, True, self._stored_first)
+            if data is not None:
                 self._bkey[bid] = k
                 return data
         raise ValueError(f"no data key decodes b{bid}@{boff} ({n} tried, want={ulen})")
