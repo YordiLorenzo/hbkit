@@ -1,6 +1,6 @@
 # Maintainer: YordiLorenzo <yordilorenzo@gmail.com>
 pkgname=hbkit
-pkgver=0.5.2
+pkgver=0.5.3
 pkgrel=1
 pkgdesc="Recover files from Synology Hyper Backup (.hbk) archives without Synology software"
 arch=('any')
@@ -11,7 +11,7 @@ makedepends=('python-build' 'python-installer' 'python-hatchling' 'python-wheel'
 checkdepends=('python-pytest')
 optdepends=('rclone: mount S3/R2 buckets holding an archive')
 source=("$pkgname-$pkgver.tar.gz::https://files.pythonhosted.org/packages/source/${pkgname::1}/$pkgname/$pkgname-$pkgver.tar.gz")
-sha256sums=('6989703681efe1a84a432790f4c1c72ab4b0f786c0d6e2afea39806d1dad582a')
+sha256sums=('aa0f1b59728404820d025794ec039d081b2f7bd7c50250acf62a327c02b31cac')
 
 build() {
   cd "$pkgname-$pkgver"
